@@ -37,7 +37,7 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
         if len(stage_order) > 1:
             normalized = [(index, re.sub(r'[\W_]+', ' ', str(stage).casefold()).strip()) for index, stage in enumerate(stage_order)]
             def stage_rank(item):
-                text = re.sub(r'[\W_]+', ' ', ' '.join(str(item.get(field, '')) for field in ('Question ID', 'Display label', 'Section')).casefold()).strip()
+                text = re.sub(r'[\W_]+', ' ', ' '.join(str(item.get(field, '')) for field in ('Stage', 'Question ID', 'Display label', 'Section')).casefold()).strip()
                 matched = next((index for index, stage in normalized if stage and re.search(rf'\b{re.escape(stage)}\b', text)), len(normalized))
                 return matched, int(item.get('Order', 999999))
             initial_rows = sorted(initial_rows, key=stage_rank)
@@ -129,6 +129,54 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
                     change_type(changed_by_id[edit['Question ID']], edit['Question type'])
                 commit(changed, 'Question types updated.')
 
+    unassigned_stage_ids = {
+        row['Question ID'] for row in rows
+        if str(row.get('Stage', '')).strip().casefold() in {'', 'unassigned', 'not specified', 'none'}
+    }
+    with st.expander(
+        f"Optional - review or change stage mapping ({len(unassigned_stage_ids)} unassigned)",
+        expanded=bool(unassigned_stage_ids),
+    ):
+        st.caption(
+            'Every detected question is kept, including questions from unfamiliar stages. '
+            'Change the proposed mapping only when needed. You may type any category-specific '
+            'stage, for example Pre-wash, After application or Skin dry-down. Separate multiple stages with a semicolon.'
+        )
+        if stage_order:
+            st.caption('Stages currently used in this study: ' + ' · '.join(str(stage) for stage in stage_order))
+        stage_rows = [
+            {
+                'Status': 'Please assign' if row['Question ID'] in unassigned_stage_ids else 'Mapped',
+                'Question shown in Excel': row.get('Metric label') or row['Display label'],
+                'Stage mapping': row.get('Stage', 'Unassigned'),
+                'Question ID': row['Question ID'],
+            }
+            for row in rows
+        ]
+        with st.form(f'stage_mapping_form_{key}_{revision}'):
+            stage_edits = st.data_editor(
+                pd.DataFrame(stage_rows), hide_index=True, width='stretch', height=360,
+                disabled=['Status', 'Question shown in Excel', 'Question ID'],
+                column_order=['Status', 'Question shown in Excel', 'Stage mapping', 'Question ID'],
+                key=f'stage_mapping_table_{key}_{revision}',
+                column_config={
+                    'Status': st.column_config.TextColumn('Status', width='small'),
+                    'Question shown in Excel': st.column_config.TextColumn('Question', width='large'),
+                    'Stage mapping': st.column_config.TextColumn(
+                        'Stage', width='medium', required=True,
+                        help='Used to group and order questions. Type a new stage name if it is not in the proposed list.',
+                    ),
+                    'Question ID': st.column_config.TextColumn('Source ID', width='medium'),
+                },
+            )
+            if st.form_submit_button('Save stage mapping'):
+                changed = deepcopy(rows)
+                changed_by_id = {row['Question ID']: row for row in changed}
+                for edit in stage_edits.to_dict('records'):
+                    stage = str(edit.get('Stage mapping', '')).strip()
+                    changed_by_id[edit['Question ID']]['Stage'] = stage or 'Unassigned'
+                commit(changed, 'Stage mappings updated.')
+
     render_type_metric_editor(rows, key, revision)
     with st.expander('Optional customisation - change metrics for one question', expanded=bool(st.session_state.get(f'metric_batch_{key}'))):
         render_metric_editor(rows, key, revision, commit)
@@ -154,14 +202,14 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
                 or (scope == 'Gardées' and not row['Keep'])
                 or (scope == 'Écartées' and row['Keep'])):
                 continue
-            searchable = ' '.join(str(row.get(field,'')) for field in ('Question ID','Display label','Metric label','Section','Type')).casefold()
+            searchable = ' '.join(str(row.get(field,'')) for field in ('Question ID','Display label','Metric label','Section','Stage','Type')).casefold()
             if search.strip() and search.strip().casefold() not in searchable:
                 continue
             visible.append({
                 'Question ID':row['Question ID'], 'Keep':row['Keep'], 'Type':row['Type'], 'Confidence':row.get('Confidence',''),
                 'Variable / item':row.get('Metric label') if row.get('Group ID') else row['Display label'],
                 'Groupe':row['Display label'] if row.get('Group ID') and row['Group ID'] != previous_group else '',
-                'Section':row['Section'], 'KPI Summary':row['KPI Summary'],
+                'Section':row['Section'], 'Stage':row.get('Stage', 'Unassigned'), 'KPI Summary':row['KPI Summary'],
                 'Summary label':row['Summary label'], 'Sens favorable':row['Sens favorable'],
                 'Included splits':row['Included splits'],
                 'Métriques retenues':' · '.join(row['Selected metrics']),
@@ -170,8 +218,8 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
         st.caption(f'{len(visible)} / {len(rows)} questions affichées.')
         view_key = editor_view_key(visible, search, scope)
         with st.form(f'questions_form_{key}_{revision}'):
-            edited = st.data_editor(pd.DataFrame(visible, columns=['Question ID','Keep','Type','Confidence','Variable / item','Groupe','Section','KPI Summary','Summary label','Sens favorable','Included splits','Métriques retenues']), hide_index=True, width='stretch',height=440,
-                column_order=['Keep','Type','Variable / item','Groupe','Section','Included splits','KPI Summary','Summary label','Sens favorable','Confidence','Question ID','Métriques retenues'],
+            edited = st.data_editor(pd.DataFrame(visible, columns=['Question ID','Keep','Type','Confidence','Variable / item','Groupe','Section','Stage','KPI Summary','Summary label','Sens favorable','Included splits','Métriques retenues']), hide_index=True, width='stretch',height=440,
+                column_order=['Keep','Type','Variable / item','Groupe','Section','Stage','Included splits','KPI Summary','Summary label','Sens favorable','Confidence','Question ID','Métriques retenues'],
                 key=f'questions_table_{key}_{revision}_{view_key}', disabled=['Question ID','Confidence','Groupe','Métriques retenues'],
                 column_config={
                     'Confidence':st.column_config.TextColumn('Recognition confidence',help='Heuristic recognition level, not a statistical probability. Review unfamiliar or ambiguous questions.'),
@@ -181,6 +229,7 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
                     'Question ID':st.column_config.TextColumn('Question G-Sight',width='large'),
                     'Summary label':st.column_config.TextColumn('Label KPI court'),
                     'Sens favorable':st.column_config.SelectboxColumn(options=['Automatique','Plus haut','Plus bas','Idéal au centre','Neutre']),
+                    'Stage':st.column_config.TextColumn('Stage', help='Editable stage mapping; use a semicolon for multiple stages.'),
                     'Included splits':st.column_config.TextColumn('Splits inclus'),
                 })
             st.caption('Changer le type repropose une sélection de métriques pour cette question. Tu pourras ensuite la modifier ci-dessous. Les métriques de type listing ne sont pas interprétées comme des moyennes.')
@@ -191,7 +240,7 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
                     for edit in edited.to_dict('records'):
                         row=by_id[edit['Question ID']]
                         change_type(row,edit['Type'])
-                        for field in ('Keep','Section','KPI Summary','Summary label','Sens favorable','Included splits'):
+                        for field in ('Keep','Section','Stage','KPI Summary','Summary label','Sens favorable','Included splits'):
                             row[field]=edit[field]
                         label=str(edit['Variable / item']).strip()
                         if not label:

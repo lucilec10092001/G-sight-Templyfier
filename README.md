@@ -1,4 +1,4 @@
-# G-Sight Templyfier v53
+# G-Sight Templyfier v54
 
 English interface, editable CMI proposals, optional score differences and flexible
 benchmark layouts. Suitable for local review; internal production deployment
@@ -102,7 +102,7 @@ presentation. The advanced strict-template mode intentionally follows the previo
 clean file's layout; the new flexible benchmark options belong to the recommended
 smart workflow.
 
-See `CHANGES_v53.md`, `VALIDATION_v53.md` and `SERVER_DEPLOYMENT.md`.
+See `CHANGES_v54.md`, `VALIDATION_v54.md` and `SERVER_DEPLOYMENT.md`.
 
 ## Review shortcuts and layout previews
 
@@ -130,7 +130,7 @@ and Paired processing. Equal reliability across all real French exports is not
 certified: qualify representative approved exports before client delivery.
 See CMI_USER_TEST_PROTOCOL.md for practical user acceptance tasks.
 
-## A simpler everyday workflow in v53
+## A simpler everyday workflow in v54
 
 Follow the same four steps shown in the overview and sidebar. Start with the
 exports; review the questions and metrics, check comparisons, then create Excel.
@@ -170,6 +170,12 @@ for example `After application`, `Rinse` or `Skin dry-down`, then click **Add
 stage**. Templyfier recognises that wording in question IDs, labels and sections
 and shows the number of matching questions next to each stage.
 Place the stage in the desired block order before confirming the study setup.
+
+All validated result sheets are read before the question review. A stage found in
+a G-Sight sheet header is preserved even when its name is unfamiliar. Questions
+without a reliable stage remain visible as **Unassigned**. In Step 2, open
+**Optional - review or change stage mapping** to assign or rename any question
+with a free-text category-specific stage. A missing stage never removes a question.
 
 ## Initial shared-server scope
 
