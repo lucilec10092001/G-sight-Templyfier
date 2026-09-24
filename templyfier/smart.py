@@ -58,6 +58,7 @@ class QuestionProposal:
     summary_keep: bool = False
     summary_label: str = ""
     metric_availability: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    stages: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1242,10 +1243,10 @@ def _classify(question_id: str, mapped_kpi: str, metrics: Sequence[str]) -> tupl
     return "Autres", "Faible"
 
 
-def analyze_questions(source) -> tuple:
-    workbook = _workbook(source)
-    sheet = detect_data_sheet(workbook)
+def _analyze_question_sheet(sheet) -> tuple:
+    """Analyse every question in one validated G-Sight result sheet."""
     layout = detect_layout(sheet)
+    source_stage = _stage_name(sheet)
     groups: dict[str, dict] = {}
     for row in range(layout.header_row + 1, sheet.max_row + 1):
         question_id = _text(sheet.cell(row, layout.metric_col - 1).value)
@@ -1296,6 +1297,12 @@ def analyze_questions(source) -> tuple:
         key=lambda item: (item[0], _normal(item[1]["question_id"])),
     )
     for order, (_, group, label, metric_label, question_type, confidence, section) in enumerate(ordered_prepared, 1):
+        combined = _normal(f"{group['question_id']} {group['mapped_kpi']} {label} {section}")
+        explicit_stages = tuple(
+            stage for stage in ("NEAT", "WET", "DRY", "DAMP")
+            if re.search(rf"\b{_normal(stage)}\b", combined)
+        )
+        fallback_stage = () if _normal(source_stage) in {"", "none", "not specified", "non precise"} else (source_stage,)
         proposals.append(
             QuestionProposal(
                 keep=question_type != "Delete" and section != "USAGE & CONTEXT",
@@ -1309,9 +1316,16 @@ def analyze_questions(source) -> tuple:
                 first_row=group["first_row"],
                 metrics=tuple(group["metrics"]),
                 metric_label=metric_label,
+                stages=explicit_stages or fallback_stage,
             )
         )
     return sheet.title, layout, tuple(proposals)
+
+
+def analyze_questions(source) -> tuple:
+    """Analyse the primary result sheet for backward-compatible callers."""
+    workbook = _workbook(source)
+    return _analyze_question_sheet(detect_data_sheet(workbook))
 
 
 def inspect_smart_package(raw_files: Sequence[tuple[str, object]]) -> SmartPackageInfo:
@@ -1410,34 +1424,44 @@ def inspect_smart_package(raw_files: Sequence[tuple[str, object]]) -> SmartPacka
     ] or list(zip(candidates, inputs))
     source_sheet = ""
     for candidate, input_info in question_candidates:
-        _, item_filename, item_source, item_sheet, item_layout, _, _, _, _ = candidate
-        item_source_sheet, _, item_questions = analyze_questions(item_source)
-        if item_filename == filename:
-            source_sheet = item_source_sheet
-        indexed_metrics: dict[str, dict[str, str]] = {}
-        for source_row in range(item_layout.header_row + 1, item_sheet.max_row + 1):
-            qid=_text(item_sheet.cell(source_row,item_layout.metric_col-1).value)
-            metric=_text(item_sheet.cell(source_row,item_layout.metric_col).value)
-            has_value=any(isinstance(item_sheet.cell(source_row,col).value,(int,float))
-                and not isinstance(item_sheet.cell(source_row,col).value,bool) for col in item_layout.product_cols)
-            if qid and metric and has_value:
-                indexed_metrics.setdefault(qid.casefold(),{})[_metric_key(metric)]=metric
-        for proposal in item_questions:
-            key = proposal.question_id.casefold()
-            if key not in indexed_metrics:
-                continue
-            availability.setdefault(key, set()).add(input_info.split_name)
-            for metric_key in indexed_metrics[key]:
-                metric_availability.setdefault(key,{}).setdefault(metric_key,set()).add(item_filename)
-            current = merged_questions.get(key)
-            if current is None:
-                merged_questions[key] = proposal
-            else:
-                # Keep every available metric, even when two splits have equally
-                # long but different metric lists. Source values are never pooled.
-                merged_questions[key] = replace(
-                    current, metrics=tuple(dict.fromkeys((*current.metrics, *proposal.metrics)))
-                )
+        _, item_filename, item_source, _, _, _, _, _, _ = candidate
+        item_workbook = _workbook(item_source)
+        # A single consolidated G-Sight workbook may contain one valid result
+        # sheet per stage (for example NEAT and WET). The former implementation
+        # analysed only detect_data_sheet(), so questions exclusive to every
+        # other stage disappeared from the review and therefore from Excel.
+        for item_sheet in _embedded_data_sheets(item_workbook):
+            item_layout = _active_layout(item_sheet, detect_layout(item_sheet))
+            item_source_sheet, _, item_questions = _analyze_question_sheet(item_sheet)
+            if item_filename == filename and not source_sheet:
+                source_sheet = item_source_sheet
+            indexed_metrics: dict[str, dict[str, str]] = {}
+            for source_row in range(item_layout.header_row + 1, item_sheet.max_row + 1):
+                qid=_text(item_sheet.cell(source_row,item_layout.metric_col-1).value)
+                metric=_text(item_sheet.cell(source_row,item_layout.metric_col).value)
+                has_value=any(isinstance(item_sheet.cell(source_row,col).value,(int,float))
+                    and not isinstance(item_sheet.cell(source_row,col).value,bool) for col in item_layout.product_cols)
+                if qid and metric and has_value:
+                    indexed_metrics.setdefault(qid.casefold(),{})[_metric_key(metric)]=metric
+            for proposal in item_questions:
+                key = proposal.question_id.casefold()
+                if key not in indexed_metrics:
+                    continue
+                availability.setdefault(key, set()).add(input_info.split_name)
+                for metric_key in indexed_metrics[key]:
+                    metric_availability.setdefault(key,{}).setdefault(metric_key,set()).add(item_filename)
+                current = merged_questions.get(key)
+                if current is None:
+                    merged_questions[key] = proposal
+                else:
+                    # Keep every available metric, even when stages or splits
+                    # expose equally long but different metric lists. Values
+                    # remain attached to their original result sheet.
+                    merged_questions[key] = replace(
+                        current,
+                        metrics=tuple(dict.fromkeys((*current.metrics, *proposal.metrics))),
+                        stages=tuple(dict.fromkeys((*current.stages, *proposal.stages))),
+                    )
 
     prepared_questions = []
     for key, proposal in merged_questions.items():
@@ -1528,6 +1552,7 @@ def inspect_smart_package(raw_files: Sequence[tuple[str, object]]) -> SmartPacka
             summary_keep=proposal.question_id.casefold() in suggested_summary_ids,
             summary_label=_summary_label(proposal.display_label),
             metric_availability=proposal.metric_availability,
+            stages=proposal.stages,
         )
         for order, (_, proposal, item_availability) in enumerate(sorted_questions, 1)
     )
@@ -1578,7 +1603,7 @@ def apply_profile(proposals: Sequence[QuestionProposal], profile: dict) -> list[
         if prior:
             for field in (
                 "Keep", "Order", "Section", "Display label", "Metric label", "Type", "Custom metrics",
-                "Included splits", "KPI Summary", "Summary label", "Sens favorable",
+                "Included splits", "Stage", "KPI Summary", "Summary label", "Sens favorable",
                 "Selected metrics", "Metric labels", "Selection type", "Group ID",
                 "Grouping choice", "Dismissed groups", "Ungrouped labels", *STANDARD_METRICS
             ):
@@ -1609,6 +1634,7 @@ def proposal_to_row(proposal: QuestionProposal) -> dict:
         "Available metrics": " · ".join(proposal.metrics),
         "Availability": " · ".join(proposal.availability) or "Tous les splits",
         "Included splits": "; ".join(proposal.suggested_splits) or "Tous les splits",
+        "Stage": " ; ".join(proposal.stages) or "Unassigned",
         "KPI Summary": proposal.summary_keep,
         "Summary label": proposal.summary_label or _summary_label(proposal.display_label),
         "Sens favorable": "Idéal au centre" if proposal.question_type == "Strength" else "Automatique",

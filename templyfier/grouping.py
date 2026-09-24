@@ -34,6 +34,12 @@ def stages_for(row, stage_names=()):
     def stage_text(value):
         return re.sub(r'[\W_]+', ' ', _normal(value)).strip()
 
+    explicit = str(row.get('Stage', '')).strip()
+    if explicit and stage_text(explicit) not in {'unassigned', 'not specified', 'non precise', 'none'}:
+        return tuple(dict.fromkeys(
+            value.strip() for value in re.split(r'[;|\n]+', explicit) if value.strip()
+        ))
+
     values = stage_text(' '.join(str(row.get(field, '')) for field in
                                  ('Question ID', 'Display label', 'Metric label', 'Section')))
     candidates = list(dict.fromkeys(['NEAT', 'WET', 'DRY', 'DAMP', *stage_names]))
