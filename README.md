@@ -1,4 +1,4 @@
-# G-Sight Templyfier v57
+# G-Sight Templyfier v58
 
 Templyfier turns G-Sight DataViz outputs into editable Excel toplines for consumer research studies. The interface is in English and the question detection supports English and French source wording. No consumer files or credentials are included in this repository.
 
@@ -32,7 +32,7 @@ Question ordering sits directly below the table. Multiple questions or groups ca
 
 Before generation, **Preview the final Excel** shows the planned worksheets and a simplified Excel-like view of sections, variables, result rows, products and delta columns. Scores remain blank until generation; the preview never invents consumer results.
 
-Metric recipes for Standard, Strength, CATA, Bipolar, Listing, Preference and Project-specific questions are always visible before the table. The table supports direct per-question metric editing and safe bulk changes; the detailed question-specific assistant remains under `Advanced metric settings`.
+Metric recipes for Standard, Strength, CATA, Bipolar, Listing, Preference and Project-specific questions are always visible before the table. In the table, tick one question for a question-specific metric selection or several same-type questions for a shared selection. Metrics are clicked from their available list; no metric name has to be typed. Optional result-row renaming appears only for a single selected question.
 
 ## Benchmark and split handling
 
@@ -59,4 +59,4 @@ For an internal server deployment, follow `SERVER_DEPLOYMENT.md`. The current pu
 
 ## Validation
 
-The calculation engine and Excel writer were preserved. Version 57 completes the first-use UI review with numbered steps, an up-to-date Help guide and compact question-table views. See `CHANGES_v57.md` and `VALIDATION_v57.md`.
+The calculation engine and Excel writer were preserved. Version 58 replaces manual metric entry and the separate exception editor with one selection-driven table workflow. See `CHANGES_v58.md` and `VALIDATION_v58.md`.

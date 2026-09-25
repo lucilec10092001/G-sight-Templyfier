@@ -8,11 +8,11 @@ import streamlit as st
 from question_order import question_order
 from grouping_ui import render_group_assistant
 from templyfier.grouping import remember_edit, undo_edit, redo_edit
-from templyfier.review import editor_view_key, audit_questions
-from metric_editor import render_metric_editor, render_type_metric_editor
+from templyfier.review import audit_questions, editor_view_key, safe_metric_match
+from metric_editor import render_type_metric_editor
 from memory_ui import render_memory_assistant
 from templyfier.editor_model import (
-    QUESTION_TYPES, change_type, export_rows, matching_selection, prepare_rows,
+    QUESTION_TYPES, change_type, export_rows, prepare_rows,
     reorder_rows, set_metric_selection,
 )
 from templyfier.smart import _metric_key, proposal_to_row
@@ -30,20 +30,34 @@ def _metric_text(metrics):
     return "; ".join(str(metric) for metric in metrics)
 
 
-def _parse_metric_text(value):
-    return [_clean(item) for item in re.split(r"[;\n·|]+", str(value or "")) if _clean(item)]
-
-
-def _exact_metric_selection(value, available):
-    requested = _parse_metric_text(value)
-    by_key = {_metric_key(metric): metric for metric in available}
-    missing = [metric for metric in requested if _metric_key(metric) not in by_key]
-    if missing:
-        raise ValueError(
-            "Unknown metric(s): " + ", ".join(missing)
-            + ". Use the exact G-Sight metric names, separated with semicolons."
+def _apply_selected_metrics(rows, selected_ids, chosen, labels=None):
+    if not selected_ids:
+        raise ValueError("Select at least one question.")
+    if not chosen:
+        raise ValueError("Keep at least one result for the selected questions.")
+    changed = deepcopy(rows)
+    by_id = {row["Question ID"]: row for row in changed}
+    source = by_id.get(selected_ids[0])
+    if source is None or not set(chosen).issubset(set(source["Available metric list"])):
+        raise ValueError("The selected results are not available for the source question.")
+    skipped = []
+    for question_id in selected_ids:
+        target = by_id.get(question_id)
+        if target is None:
+            raise ValueError(f"Question not found: {question_id}")
+        if question_id == source["Question ID"]:
+            matched, missing = list(chosen), []
+        else:
+            matched, missing = safe_metric_match(source, target, chosen)
+        if missing:
+            skipped.append(question_id)
+            continue
+        set_metric_selection(
+            target,
+            matched,
+            labels if len(selected_ids) == 1 and question_id == source["Question ID"] else None,
         )
-    return [by_key[_metric_key(metric)] for metric in requested]
+    return changed, skipped
 
 
 def render_question_editor(frame, proposals, key, memory=None, protected_ids=(), project_key=None,
@@ -198,150 +212,285 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
             "Metrics shown in Excel", "Status",
         ],
     }
-    with st.form(f"questions_form_{key}_{revision}_{view_key}"):
-        edited = st.data_editor(
-            pd.DataFrame(visible), hide_index=True, width="stretch", height=560,
-            key=f"questions_table_{key}_{revision}_{view_key}",
-            disabled=["G-Sight question", "Status"],
-            column_order=column_sets[table_view],
-            column_config={
-                "Select": st.column_config.CheckboxColumn("Select", pinned=True, help="Select rows for the bulk action below."),
-                "Keep": st.column_config.CheckboxColumn("Keep", pinned=True, help="Untick to exclude this question from Excel."),
-                "G-Sight question": st.column_config.TextColumn(width="large"),
-                "Variable / item": st.column_config.TextColumn("Variable / item shown in Excel", required=True, width="large"),
-                "Group": st.column_config.TextColumn("Group shown in Excel", width="medium",
-                                                     help="Use the same group name on several rows to group them together."),
-                "Section": st.column_config.TextColumn("Section shown in Excel", width="medium"),
-                "Stage": st.column_config.TextColumn(width="small",
-                                                     help="Type any study-specific stage. Use a semicolon for several stages."),
-                "Included splits": st.column_config.TextColumn(width="medium",
-                                                               help="All, or split names separated with semicolons."),
-                "KPI Summary": st.column_config.CheckboxColumn(width="small"),
-                "KPI short label": st.column_config.TextColumn(width="medium"),
-                "Question type": st.column_config.SelectboxColumn(options=list(QUESTION_TYPES), required=True, width="medium"),
-                "Metrics shown in Excel": st.column_config.TextColumn(
-                    width="large",
-                    help="Edit one question directly. Use exact G-Sight metric names separated with semicolons.",
+    edited = st.data_editor(
+        pd.DataFrame(visible), hide_index=True, width="stretch", height=560,
+        key=f"questions_table_{key}_{revision}_{view_key}",
+        disabled=["G-Sight question", "Metrics shown in Excel", "Status"],
+        column_order=column_sets[table_view],
+        column_config={
+            "Select": st.column_config.CheckboxColumn(
+                "Select", pinned=True,
+                help="Select one row for a question-specific change, or several rows for one shared change.",
+            ),
+            "Keep": st.column_config.CheckboxColumn(
+                "Keep", pinned=True, help="Untick to exclude this question from Excel."
+            ),
+            "G-Sight question": st.column_config.TextColumn(width="large"),
+            "Variable / item": st.column_config.TextColumn(
+                "Variable / item shown in Excel", required=True, width="large"
+            ),
+            "Group": st.column_config.TextColumn(
+                "Group shown in Excel", width="medium",
+                help="Use the same group name on several rows to group them together.",
+            ),
+            "Section": st.column_config.TextColumn("Section shown in Excel", width="medium"),
+            "Stage": st.column_config.TextColumn(
+                width="small", help="Type any study-specific stage. Use a semicolon for several stages."
+            ),
+            "Included splits": st.column_config.TextColumn(
+                width="medium", help="All, or split names separated with semicolons."
+            ),
+            "KPI Summary": st.column_config.CheckboxColumn(width="small"),
+            "KPI short label": st.column_config.TextColumn(width="medium"),
+            "Question type": st.column_config.SelectboxColumn(
+                options=list(QUESTION_TYPES), required=True, width="medium"
+            ),
+            "Metrics shown in Excel": st.column_config.TextColumn(
+                width="large",
+                help="Select the row, then click the metrics to keep in the editor directly below the table.",
+            ),
+            "Status": st.column_config.TextColumn(width="small"),
+        },
+    )
+
+    selected_ids = edited.loc[
+        edited["Select"].astype(bool), "G-Sight question"
+    ].astype(str).tolist()
+    edited_by_id = {
+        str(item["G-Sight question"]): item for item in edited.to_dict("records")
+    }
+
+    def apply_visible_table_edits():
+        changed = deepcopy(rows)
+        by_id = {row["Question ID"]: row for row in changed}
+        for edit in edited.to_dict("records"):
+            row = by_id[edit["G-Sight question"]]
+            change_type(row, edit.get("Question type", row["Type"]))
+            grouped_before = bool(row.get("Group ID"))
+            variable = _clean(edit.get(
+                "Variable / item",
+                row.get("Metric label") if grouped_before else row["Display label"],
+            ))
+            if not variable:
+                raise ValueError("A variable or item name is empty.")
+            section = _clean(edit.get("Section", row.get("Section", "")))
+            group = _clean(edit.get(
+                "Group", row["Display label"] if grouped_before else ""
+            ))
+            row.update({
+                "Keep": bool(edit.get("Keep", row["Keep"])),
+                "Section": section,
+                "Stage": _clean(edit.get("Stage", row.get("Stage", ""))) or "Unassigned",
+                "Included splits": _clean(
+                    edit.get("Included splits", row.get("Included splits", "All"))
+                ) or "All",
+                "KPI Summary": bool(edit.get("KPI Summary", row.get("KPI Summary"))),
+                "Summary label": _clean(
+                    edit.get("KPI short label", row.get("Summary label", ""))
                 ),
-                "Status": st.column_config.TextColumn(width="small"),
-            },
+            })
+            if group:
+                row["Group ID"] = _group_id(section, group)
+                row["Display label"] = group
+                row["Metric label"] = variable
+            else:
+                row["Group ID"] = ""
+                row["Display label"] = variable
+                row["Metric label"] = ""
+        return changed, by_id
+
+    st.markdown("#### Edit selected questions")
+    if not selected_ids:
+        st.info(
+            "Tick **Select** on one question to change its metrics, or on several questions "
+            "to apply the same change to all selected rows."
         )
+        apply_metrics_clicked = False
+        chosen_metrics = []
+        selected_metric_labels = {}
+    else:
+        selected_rows = [
+            next(row for row in rows if row["Question ID"] == question_id)
+            for question_id in selected_ids
+        ]
+        selected_types = {
+            edited_by_id[question_id].get("Question type", row["Type"])
+            for question_id, row in zip(selected_ids, selected_rows)
+        }
         st.caption(
-            "Tick Select on any adjacent or non-adjacent rows when the same change should apply to all of them. "
-            "For example: rename Color, assign a stage or split, or apply one metric selection."
+            f"{len(selected_ids)} question(s) selected: "
+            + " · ".join(
+                _clean(row.get("Metric label") or row.get("Display label") or row["Question ID"])
+                for row in selected_rows[:4]
+            )
+            + (" · …" if len(selected_rows) > 4 else "")
+        )
+        if len(selected_types) != 1:
+            st.warning(
+                "The selected questions have different types. Select questions of the same "
+                "type to change their metrics together."
+            )
+            apply_metrics_clicked = False
+            chosen_metrics = []
+            selected_metric_labels = {}
+        else:
+            source = selected_rows[0]
+            type_name = next(iter(selected_types))
+            available_metrics = list(source["Available metric list"])
+            chosen_metrics = st.multiselect(
+                f"Results shown in Excel for the selected {type_name} question(s)",
+                options=available_metrics,
+                default=[
+                    metric for metric in available_metrics
+                    if _metric_key(metric) in {
+                        _metric_key(value) for value in source["Selected metrics"]
+                    }
+                ],
+                key=(
+                    f"selected_metrics_{key}_{revision}_"
+                    + hashlib.sha1("\0".join(selected_ids).encode("utf-8")).hexdigest()[:10]
+                ),
+                help="Click a result to add or remove it. No typing is required.",
+            )
+            selected_metric_labels = {}
+            if len(selected_ids) == 1 and chosen_metrics:
+                with st.expander("Rename these result rows in Excel — optional", expanded=False):
+                    st.caption(
+                        "Source metric names remain unchanged. Edit only the wording shown in the final Excel."
+                    )
+                    label_table = st.data_editor(
+                        pd.DataFrame([
+                            {
+                                "G-Sight result": metric,
+                                "Name shown in Excel": source.get("Metric labels", {}).get(metric, metric),
+                            }
+                            for metric in chosen_metrics
+                        ]),
+                        hide_index=True,
+                        width="stretch",
+                        disabled=["G-Sight result"],
+                        column_config={
+                            "G-Sight result": st.column_config.TextColumn(width="large"),
+                            "Name shown in Excel": st.column_config.TextColumn(required=True, width="large"),
+                        },
+                        key=(
+                            f"selected_metric_labels_{key}_{revision}_"
+                            + hashlib.sha1(
+                                ("\0".join(selected_ids + chosen_metrics)).encode("utf-8")
+                            ).hexdigest()[:10]
+                        ),
+                    )
+                    selected_metric_labels = dict(zip(
+                        label_table["G-Sight result"],
+                        label_table["Name shown in Excel"],
+                    ))
+            recipes = {
+                tuple(_metric_key(metric) for metric in row["Selected metrics"])
+                for row in selected_rows
+            }
+            if len(recipes) > 1:
+                st.caption(
+                    f"The selected rows currently use {len(recipes)} different recipes. "
+                    "Applying replaces them with the selection above when a safe match exists."
+                )
+            apply_metrics_clicked = st.button(
+                "Apply metrics to selected questions",
+                type="primary",
+                disabled=not chosen_metrics,
+                icon=":material/checklist:",
+                key=f"apply_selected_metrics_{key}_{revision}",
+            )
+
+    if apply_metrics_clicked:
+        try:
+            table_changes, _ = apply_visible_table_edits()
+            changed, skipped = _apply_selected_metrics(
+                table_changes, selected_ids, chosen_metrics, selected_metric_labels
+            )
+            commit(
+                changed,
+                f"Metrics updated for {len(selected_ids) - len(skipped)} selected question(s)"
+                + (f"; {len(skipped)} left unchanged because no safe match was available." if skipped else "."),
+            )
+        except ValueError as exc:
+            st.error(str(exc))
+
+    save_table_clicked = st.button(
+        "Save table changes", type="primary", icon=":material/save:",
+        key=f"save_question_table_{key}_{revision}_{view_key}",
+    )
+    with st.expander("Other changes for selected questions — optional", expanded=False):
+        st.caption(
+            "Apply one shared name, group, section, stage, split or KPI choice "
+            "to the selected rows."
         )
         bulk_cols = st.columns([1.4, 2.2])
         bulk_action = bulk_cols[0].selectbox(
-            "Apply to selected rows",
+            "Change",
             ["No bulk action", "Keep", "Exclude", "Set variable / item name", "Set group",
-             "Set section", "Set stage", "Set included splits", "Set metrics",
+             "Set section", "Set stage", "Set included splits",
              "Add to KPI Summary", "Remove from KPI Summary"],
+            key=f"question_bulk_action_{key}_{revision}",
         )
         bulk_value = bulk_cols[1].text_input(
-            "New value", placeholder="For metrics, separate exact G-Sight names with semicolons",
+            "New value",
+            placeholder="Required for names, groups, sections, stages or splits",
             disabled=bulk_action not in {
                 "Set variable / item name", "Set group", "Set section", "Set stage",
-                "Set included splits", "Set metrics",
+                "Set included splits",
             },
+            key=f"question_bulk_value_{key}_{revision}",
         )
-        submitted = st.form_submit_button("Save table changes", type="primary", icon=":material/save:")
+        apply_bulk_clicked = st.button(
+            "Apply change to selected rows",
+            disabled=bulk_action == "No bulk action",
+            key=f"apply_question_bulk_{key}_{revision}_{view_key}",
+        )
 
-    if submitted:
-        changed = deepcopy(rows)
-        by_id = {row["Question ID"]: row for row in changed}
-        selected_ids = set(edited.loc[edited["Select"].astype(bool), "G-Sight question"].tolist())
+    if save_table_clicked or apply_bulk_clicked:
         try:
-            for edit in edited.to_dict("records"):
-                row = by_id[edit["G-Sight question"]]
-                prior_type = row["Type"]
-                prior_metrics = list(row["Selected metrics"])
-                edited_type = edit.get("Question type", prior_type)
-                change_type(row, edited_type)
-                edited_metrics = _exact_metric_selection(
-                    edit.get("Metrics shown in Excel", _metric_text(prior_metrics)),
-                    row["Available metric list"],
-                )
-                if edited_type == prior_type or {
-                    _metric_key(metric) for metric in edited_metrics
-                } != {_metric_key(metric) for metric in prior_metrics}:
-                    set_metric_selection(row, edited_metrics)
-                grouped_before = bool(row.get("Group ID"))
-                variable = _clean(edit.get(
-                    "Variable / item",
-                    row.get("Metric label") if grouped_before else row["Display label"],
-                ))
-                if not variable:
-                    raise ValueError("A variable or item name is empty.")
-                section = _clean(edit.get("Section", row.get("Section", "")))
-                group = _clean(edit.get(
-                    "Group", row["Display label"] if grouped_before else ""
-                ))
-                row.update({
-                    "Keep": bool(edit.get("Keep", row["Keep"])), "Section": section,
-                    "Stage": _clean(edit.get("Stage", row.get("Stage", ""))) or "Unassigned",
-                    "Included splits": _clean(
-                        edit.get("Included splits", row.get("Included splits", "All"))
-                    ) or "All",
-                    "KPI Summary": bool(edit.get("KPI Summary", row.get("KPI Summary"))),
-                    "Summary label": _clean(
-                        edit.get("KPI short label", row.get("Summary label", ""))
-                    ),
-                })
-                if group:
-                    row["Group ID"] = _group_id(section, group)
-                    row["Display label"] = group
-                    row["Metric label"] = variable
-                else:
-                    row["Group ID"] = ""
-                    row["Display label"] = variable
-                    row["Metric label"] = ""
-
-            if bulk_action != "No bulk action" and not selected_ids:
-                raise ValueError("Select at least one row before applying a bulk action.")
-            if bulk_action in {
+            changed, by_id = apply_visible_table_edits()
+            if apply_bulk_clicked and not selected_ids:
+                raise ValueError("Select at least one row before applying a shared change.")
+            if apply_bulk_clicked and bulk_action in {
                 "Set variable / item name", "Set group", "Set section", "Set stage",
-                "Set included splits", "Set metrics",
+                "Set included splits",
             } and not _clean(bulk_value):
                 raise ValueError("Enter the new value for the selected rows.")
-            for question_id in selected_ids:
-                row = by_id[question_id]
-                if bulk_action == "Keep":
-                    row["Keep"] = True
-                elif bulk_action == "Exclude":
-                    row["Keep"] = False
-                elif bulk_action == "Set variable / item name":
-                    if row.get("Group ID"):
-                        row["Metric label"] = _clean(bulk_value)
-                    else:
-                        row["Display label"] = _clean(bulk_value)
-                elif bulk_action == "Set group":
-                    label = _clean(bulk_value)
-                    variable = row.get("Metric label") or row["Display label"]
-                    row["Group ID"] = _group_id(row.get("Section", ""), label)
-                    row["Display label"] = label
-                    row["Metric label"] = variable
-                elif bulk_action == "Set section":
-                    row["Section"] = _clean(bulk_value)
-                    if row.get("Group ID"):
-                        row["Group ID"] = _group_id(row["Section"], row["Display label"])
-                elif bulk_action == "Set stage":
-                    row["Stage"] = _clean(bulk_value)
-                elif bulk_action == "Set included splits":
-                    row["Included splits"] = _clean(bulk_value)
-                elif bulk_action == "Set metrics":
-                    requested = _parse_metric_text(bulk_value)
-                    matched = matching_selection(requested, row["Available metric list"])
-                    if len(matched) != len(requested):
-                        raise ValueError(
-                            f"{row['Question ID']}: the requested metrics do not all have a safe match. "
-                            "Use question-type recipes or edit this question separately."
-                        )
-                    set_metric_selection(row, matched)
-                elif bulk_action == "Add to KPI Summary":
-                    row["KPI Summary"] = True
-                elif bulk_action == "Remove from KPI Summary":
-                    row["KPI Summary"] = False
-            commit(changed, "Question table updated.")
+            if apply_bulk_clicked:
+                for question_id in selected_ids:
+                    row = by_id[question_id]
+                    if bulk_action == "Keep":
+                        row["Keep"] = True
+                    elif bulk_action == "Exclude":
+                        row["Keep"] = False
+                    elif bulk_action == "Set variable / item name":
+                        if row.get("Group ID"):
+                            row["Metric label"] = _clean(bulk_value)
+                        else:
+                            row["Display label"] = _clean(bulk_value)
+                    elif bulk_action == "Set group":
+                        label = _clean(bulk_value)
+                        variable = row.get("Metric label") or row["Display label"]
+                        row["Group ID"] = _group_id(row.get("Section", ""), label)
+                        row["Display label"] = label
+                        row["Metric label"] = variable
+                    elif bulk_action == "Set section":
+                        row["Section"] = _clean(bulk_value)
+                        if row.get("Group ID"):
+                            row["Group ID"] = _group_id(row["Section"], row["Display label"])
+                    elif bulk_action == "Set stage":
+                        row["Stage"] = _clean(bulk_value)
+                    elif bulk_action == "Set included splits":
+                        row["Included splits"] = _clean(bulk_value)
+                    elif bulk_action == "Add to KPI Summary":
+                        row["KPI Summary"] = True
+                    elif bulk_action == "Remove from KPI Summary":
+                        row["KPI Summary"] = False
+            commit(
+                changed,
+                "Selected questions updated." if apply_bulk_clicked else "Question table updated.",
+            )
         except ValueError as exc:
             st.error(str(exc))
 
@@ -356,11 +505,6 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
                 commit(reorder_rows(rows, event["ids"]), "Question order updated.", request_rerun=False)
         except (ValueError, KeyError, TypeError) as exc:
             st.error(f"Move not applied: {exc}")
-
-    with st.expander("Advanced metric settings", expanded=bool(st.session_state.get(f"metric_batch_{key}")),
-                     icon=":material/tune:"):
-        st.caption("Use these controls only when a question type or one question needs different result rows.")
-        render_metric_editor(model["rows"], key, model["revision"], commit)
 
     empty = [row for row in model["rows"] if row["Keep"] and not row["Selected metrics"]]
     if empty:
