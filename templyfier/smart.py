@@ -119,7 +119,7 @@ def audit_input_plan(
             len(item.product_keys) == len(canonical)
             and (set(item.product_keys) == set(canonical) if automatic_exports and not paired else item.product_keys == canonical)
         )
-        if not same_plan:
+        if not paired and not same_plan:
             blockers.append(f"Plan produits différent dans {item.filename}.")
 
     if paired:
@@ -631,6 +631,26 @@ def _suggest_test_type(inputs: Sequence["SmartInputInfo"]) -> str:
     if product_counts and all(count % 2 == 0 for count in product_counts):
         return "Paired (à confirmer)"
     return "Monadic (à confirmer)"
+
+
+def _embedded_sheets_are_consumer_splits(filename: str, sheets: Sequence) -> bool:
+    """Recognise one-workbook Paired exports where each result sheet is a split."""
+    if len(sheets) < 2:
+        return False
+    meaningful_stages = {
+        _normal(_stage_name(sheet))
+        for sheet in sheets
+        if _normal(_stage_name(sheet)) not in {"", "none", "not specified", "non precise"}
+    }
+    if meaningful_stages:
+        return False
+    if re.search(r"\ball\s+splits?\b|\btous?\s+les\s+splits?\b", _normal(filename)):
+        return True
+    generic = re.compile(r"^(?:table|sheet|feuil|data|results?|resultats?)[\s_-]*\d*$", re.I)
+    titles = [_text(sheet.title) for sheet in sheets]
+    return len(set(map(_normal, titles))) == len(titles) and all(
+        title and not generic.fullmatch(_normal(title)) for title in titles
+    )
 
 
 def _suggest_benchmark_count(inputs: Sequence["SmartInputInfo"]) -> int:
@@ -1393,25 +1413,45 @@ def inspect_smart_package(raw_files: Sequence[tuple[str, object]]) -> SmartPacka
     result_candidates = [item for item in candidates if item[5] == "Résultats"] or candidates
     _, filename, source, sheet, layout, _, _, _, _ = max(result_candidates, key=lambda item: item[0])
     inputs = []
-    for score, item_filename, _, item_sheet, item_layout, role, stage, embedded_count, comparison_codes in candidates:
-        split_name,split_detection=_split_detection(item_sheet,item_filename)
-        inputs.append(
-            SmartInputInfo(
-                filename=item_filename,
-                split_name=split_name,
-                counts=_signature(item_sheet, item_layout),
-                product_names=_product_names(item_sheet, item_layout),
-                source_sheet=item_sheet.title,
-                role=role,
-                stage=stage,
-                embedded_split_count=embedded_count,
-                comparison_codes=comparison_codes,
-                product_keys=_product_keys(item_sheet, item_layout),
-                split_detection=split_detection,
-            )
+    for score, item_filename, item_source, item_sheet, item_layout, role, stage, embedded_count, comparison_codes in candidates:
+        item_workbook = _workbook(item_source)
+        embedded_sheets = _embedded_data_sheets(item_workbook)
+        split_sheets = (
+            embedded_sheets
+            if role == "Résultats" and _embedded_sheets_are_consumer_splits(item_filename, embedded_sheets)
+            else (item_sheet,)
         )
+        for split_sheet in split_sheets:
+            split_layout = _active_layout(split_sheet, detect_layout(split_sheet))
+            if len(split_sheets) > 1:
+                split_name, split_detection = _text(split_sheet.title), "High confidence"
+            else:
+                split_name, split_detection = _split_detection(split_sheet, item_filename)
+            inputs.append(
+                SmartInputInfo(
+                    filename=item_filename,
+                    split_name=split_name,
+                    counts=_signature(split_sheet, split_layout),
+                    product_names=_product_names(split_sheet, split_layout),
+                    source_sheet=split_sheet.title,
+                    role=role,
+                    stage=_stage_name(split_sheet),
+                    embedded_split_count=len(split_sheets),
+                    comparison_codes=_comparison_codes(split_sheet, split_layout),
+                    product_keys=_product_keys(split_sheet, split_layout),
+                    split_detection=split_detection,
+                )
+            )
+    if (
+        study_format not in {"HUT / in-use", "CLT"}
+        and len(inputs) > 1
+        and all(len(item.product_keys) >= 2 and len(item.product_keys) % 2 == 0 for item in inputs)
+    ):
+        study_format = "HUT / in-use"
     unique_stages = tuple(dict.fromkeys(all_stages))
-    unique_splits = tuple(dict.fromkeys(all_splits))
+    unique_splits = tuple(dict.fromkeys(
+        item.split_name for item in inputs if item.role == "Résultats"
+    )) or tuple(dict.fromkeys(all_splits))
     if len(unique_stages) > 1 and study_format != "HUT / in-use":
         warnings.append("Plusieurs stages détectés : ils doivent être assemblés, pas traités comme des splits consommateurs.")
     if study_format == "HUT / in-use" and len(unique_stages) > 1:
@@ -1428,11 +1468,20 @@ def inspect_smart_package(raw_files: Sequence[tuple[str, object]]) -> SmartPacka
     merged_questions: dict[str, QuestionProposal] = {}
     availability: dict[str, set[str]] = {}
     metric_availability: dict[str, dict[str, set[str]]] = {}
-    question_candidates = [
-        (candidate, input_info)
-        for candidate, input_info in zip(candidates, inputs)
-        if input_info.role == "Résultats"
-    ] or list(zip(candidates, inputs))
+    question_candidates = []
+    for candidate in candidates:
+        candidate_input = next(
+            (item for item in inputs
+             if item.filename == candidate[1] and item.role == candidate[5]),
+            None,
+        )
+        if candidate_input is not None and candidate_input.role == "Résultats":
+            question_candidates.append((candidate, candidate_input))
+    if not question_candidates:
+        question_candidates = [
+            (candidate, next(item for item in inputs if item.filename == candidate[1]))
+            for candidate in candidates
+        ]
     source_sheet = ""
     for candidate, input_info in question_candidates:
         _, item_filename, item_source, _, _, _, _, _, _ = candidate
@@ -1441,7 +1490,11 @@ def inspect_smart_package(raw_files: Sequence[tuple[str, object]]) -> SmartPacka
         # sheet per stage (for example NEAT and WET). The former implementation
         # analysed only detect_data_sheet(), so questions exclusive to every
         # other stage disappeared from the review and therefore from Excel.
-        for item_sheet in _embedded_data_sheets(item_workbook):
+        embedded_question_sheets = _embedded_data_sheets(item_workbook)
+        sheets_are_splits = _embedded_sheets_are_consumer_splits(
+            item_filename, embedded_question_sheets
+        )
+        for item_sheet in embedded_question_sheets:
             item_layout = _active_layout(item_sheet, detect_layout(item_sheet))
             item_source_sheet, _, item_questions = _analyze_question_sheet(item_sheet)
             if item_filename == filename and not source_sheet:
@@ -1458,7 +1511,9 @@ def inspect_smart_package(raw_files: Sequence[tuple[str, object]]) -> SmartPacka
                 key = proposal.question_id.casefold()
                 if key not in indexed_metrics:
                     continue
-                availability.setdefault(key, set()).add(input_info.split_name)
+                availability.setdefault(key, set()).add(
+                    _text(item_sheet.title) if sheets_are_splits else input_info.split_name
+                )
                 for metric_key in indexed_metrics[key]:
                     metric_availability.setdefault(key,{}).setdefault(metric_key,set()).add(item_filename)
                 current = merged_questions.get(key)
@@ -1887,10 +1942,26 @@ def _build_paired_toplines(
     summary_metric_strategy: str,
     include_summary_details: bool,
 ) -> tuple[bytes, dict]:
-    workbooks = [_workbook(source) for _, source in raw_files]
-    data_sheets = [detect_data_sheet(workbook) for workbook in workbooks]
+    virtual_sources = []
+    for filename, source in raw_files:
+        workbook = _workbook(source)
+        embedded_sheets = _embedded_data_sheets(workbook)
+        source_sheets = (
+            embedded_sheets
+            if _embedded_sheets_are_consumer_splits(filename, embedded_sheets)
+            else (detect_data_sheet(workbook),)
+        )
+        for source_sheet in source_sheets:
+            virtual_sources.append((
+                filename,
+                f"{filename}::{source_sheet.title}",
+                workbook,
+                source_sheet,
+            ))
+    workbooks = [item[2] for item in virtual_sources]
+    data_sheets = [item[3] for item in virtual_sources]
     layouts = [_active_layout(sheet, detect_layout(sheet)) for sheet in data_sheets]
-    if len(split_names) != len(raw_files):
+    if len(split_names) != len(virtual_sources):
         raise TemplyfierError("Le nombre de noms de splits est incorrect.")
     product_keys = [_product_keys(sheet, layout) for sheet, layout in zip(data_sheets, layouts)]
     product_counts = [len(keys) for keys in product_keys]
@@ -1908,11 +1979,16 @@ def _build_paired_toplines(
     pairs_by_split: dict[str, int] = {}
     summary_records = []
 
-    for file_index, ((filename, _), source_sheet, layout) in enumerate(zip(raw_files, data_sheets, layouts)):
+    for file_index, ((filename, source_key, _, source_sheet), layout) in enumerate(
+        zip(virtual_sources, layouts)
+    ):
         sheet_name = _safe_sheet_name(split_names[file_index], used_names)
         target = output.create_sheet(sheet_name)
         pairs = [(pos, pos + 1) for pos in range(0, len(layout.product_cols), 2)]
-        swaps = {int(value) for value in (paired_swaps or {}).get(filename, ())}
+        saved_swaps = (paired_swaps or {}).get(
+            source_key, (paired_swaps or {}).get(filename, ())
+        )
+        swaps = {int(value) for value in saved_swaps}
         blocks = []
         current_col = 3
         for pair_number, (benchmark_pos, candidate_pos) in enumerate(pairs, 1):
@@ -2097,7 +2173,7 @@ def _build_paired_toplines(
         "summary_metric_strategy": summary_metric_strategy,
         "summary_kpis": len(_selected_summary_questions(question_rows)),
         "mean_decimals": int(mean_decimals),
-        "reference_export": raw_files[total_index][0],
+        "reference_export": virtual_sources[total_index][0],
         "skipped_stage_questions": skipped_questions,
     }
 
