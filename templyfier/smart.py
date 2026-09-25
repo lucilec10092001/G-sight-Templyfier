@@ -482,7 +482,16 @@ def _has_split_filter(sheet) -> bool:
 
 
 def _friendly_split_label(sheet) -> str:
-    search = _normal(_split_label(sheet))
+    raw_search = _split_label(sheet)
+    search = _normal(raw_search)
+    # Native G-Sight split syntax: the value after the final colon is the
+    # split name. Example: "Search: S-15-Fabcon brand MO: Lenor" -> LENOR.
+    # Keep the older Yumos wording for backward-compatible saved projects.
+    fabcon_value = re.search(r"\bfabcon\s+brand\s+mo\s*:\s*([^,;]+)", raw_search, flags=re.I)
+    if fabcon_value:
+        value = re.sub(r"\s+", " ", fabcon_value.group(1)).strip()
+        if value:
+            return "YUMOS MO" if _normal(value) in {"yumos", "yumos mo"} else value.upper()
     if "sample split" in search and "boost" in search and any(
         word in search for word in ("orkide", "orchid")
     ):
