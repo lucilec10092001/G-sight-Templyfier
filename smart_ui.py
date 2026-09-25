@@ -402,14 +402,18 @@ def render_smart_mode():
         for item in info.inputs:
             if item.role != "Résultats" and any(candidate.role == "Résultats" for candidate in info.inputs):
                 continue
+            source_key = f"{item.filename}::{item.source_sheet}"
             for position in range(0, len(item.product_names) - 1, 2):
                 pair_rows.append({
+                    "Source key": source_key,
                     "Fichier": item.filename,
                     "Split": item.split_name,
                     "Paire": position // 2 + 1,
                     "Benchmark": item.product_names[position],
                     "Candidat": item.product_names[position + 1],
-                    "Inverser": position // 2 + 1 in saved_swaps.get(item.filename, []),
+                    "Inverser": position // 2 + 1 in saved_swaps.get(
+                        source_key, saved_swaps.get(item.filename, [])
+                    ),
                 })
         st.caption(
             "Plan Paired détecté — chaque paire doit être Benchmark puis Candidat. "
@@ -418,11 +422,12 @@ def render_smart_mode():
         pair_table = st.data_editor(
             pd.DataFrame(
                 pair_rows,
-                columns=["Fichier", "Split", "Paire", "Benchmark", "Candidat", "Inverser"],
+                columns=["Source key", "Fichier", "Split", "Paire", "Benchmark", "Candidat", "Inverser"],
             ),
             hide_index=True,
             width="stretch",
             disabled=["Fichier", "Split", "Paire", "Benchmark", "Candidat"],
+            column_order=["Split", "Paire", "Benchmark", "Candidat", "Inverser"],
             column_config={
                 "Fichier": st.column_config.TextColumn(width="large"),
                 "Inverser": st.column_config.CheckboxColumn(
@@ -433,8 +438,8 @@ def render_smart_mode():
             key=f"smart_pairs_{key}",
         )
         paired_swaps = {
-            filename: group.loc[group["Inverser"].astype(bool), "Paire"].astype(int).tolist()
-            for filename, group in pair_table.groupby("Fichier")
+            source_key: group.loc[group["Inverser"].astype(bool), "Paire"].astype(int).tolist()
+            for source_key, group in pair_table.groupby("Source key")
         }
 
     benchmark_positions = tuple(product_options[label] for label in benchmark_labels)
