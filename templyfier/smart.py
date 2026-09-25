@@ -83,6 +83,7 @@ class SmartInputInfo:
     split_name: str
     counts: tuple[int | None, ...]
     product_names: tuple[str, ...]
+    source_sheet: str = ""
     role: str = "Résultats"
     stage: str = ""
     embedded_split_count: int = 1
@@ -1400,6 +1401,7 @@ def inspect_smart_package(raw_files: Sequence[tuple[str, object]]) -> SmartPacka
                 split_name=split_name,
                 counts=_signature(item_sheet, item_layout),
                 product_names=_product_names(item_sheet, item_layout),
+                source_sheet=item_sheet.title,
                 role=role,
                 stage=stage,
                 embedded_split_count=embedded_count,
