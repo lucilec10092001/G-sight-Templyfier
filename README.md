@@ -1,4 +1,4 @@
-# G-Sight Templyfier v56
+# G-Sight Templyfier v57
 
 Templyfier turns G-Sight DataViz outputs into editable Excel toplines for consumer research studies. The interface is in English and the question detection supports English and French source wording. No consumer files or credentials are included in this repository.
 
@@ -26,7 +26,11 @@ The main table contains the decisions that affect Excel:
 
 Search and filters change only the view; hidden questions remain in the output. Tick `Select` on adjacent or non-adjacent rows to apply one action to several questions: keep, exclude, rename variables/items or groups, set section, stage, included splits or metrics, and add or remove KPI Summary.
 
+The table opens in the compact **Essentials** view. **Study mapping**, **KPI Summary** and **All columns** expose the remaining fields without forcing horizontal complexity on every user.
+
 Question ordering sits directly below the table. Multiple questions or groups can be selected and dragged. Moves remain in the browser until `Save order`, avoiding a Streamlit rerun after every movement. Sections and groups follow this saved question order in Excel.
+
+Before generation, **Preview the final Excel** shows the planned worksheets and a simplified Excel-like view of sections, variables, result rows, products and delta columns. Scores remain blank until generation; the preview never invents consumer results.
 
 Metric recipes for Standard, Strength, CATA, Bipolar, Listing, Preference and Project-specific questions are always visible before the table. The table supports direct per-question metric editing and safe bulk changes; the detailed question-specific assistant remains under `Advanced metric settings`.
 
@@ -55,4 +59,4 @@ For an internal server deployment, follow `SERVER_DEPLOYMENT.md`. The current pu
 
 ## Validation
 
-The calculation engine and Excel writer were preserved. Version 56 removes the deferred legacy-template interface, adds source traceability, and makes metric and multi-row editing part of the main review. See `CHANGES_v56.md` and `VALIDATION_v56.md`.
+The calculation engine and Excel writer were preserved. Version 57 completes the first-use UI review with numbered steps, an up-to-date Help guide and compact question-table views. See `CHANGES_v57.md` and `VALIDATION_v57.md`.

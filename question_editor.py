@@ -117,7 +117,7 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
         "Everything that affects the Excel output is in this table. Filtering only changes the view; "
         "hidden rows stay in the output. Select rows when one change should apply to several questions."
     )
-    filter_cols = st.columns([2.2, 1.2, 1.2, 1.2])
+    filter_cols = st.columns([2.2, 1.1, 1.1, 1.1, 1.35])
     search = filter_cols[0].text_input(
         "Search", key=f"question_search_{key}", placeholder="Question, item, group, section or stage"
     )
@@ -131,6 +131,12 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
     present_stages = list(dict.fromkeys(_clean(row.get("Stage")) or "Unassigned" for row in rows))
     stage_filter = filter_cols[3].selectbox(
         "Stage", ["All", *present_stages], key=f"question_stage_filter_{key}"
+    )
+    table_view = filter_cols[4].selectbox(
+        "Table view",
+        ["Essentials (recommended)", "Study mapping", "KPI Summary", "All columns"],
+        key=f"question_table_view_{key}",
+        help="This changes only the columns shown. It never removes information from the output.",
     )
 
     attention_ids = set(audit["attention_ids"])
@@ -172,16 +178,32 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
     st.caption(f"{len(visible)} of {len(rows)} questions shown.")
     view_key = editor_view_key(
         [{"Question ID": row["G-Sight question"]} for row in visible],
-        search, f"{scope}|{type_filter}|{stage_filter}",
+        search, f"{scope}|{type_filter}|{stage_filter}|{table_view}",
     )
+    column_sets = {
+        "Essentials (recommended)": [
+            "Select", "Keep", "G-Sight question", "Variable / item", "Group", "Stage",
+            "Question type", "Metrics shown in Excel", "Status",
+        ],
+        "Study mapping": [
+            "Select", "Keep", "G-Sight question", "Section", "Stage", "Included splits", "Status",
+        ],
+        "KPI Summary": [
+            "Select", "Keep", "G-Sight question", "Variable / item",
+            "KPI Summary", "KPI short label", "Status",
+        ],
+        "All columns": [
+            "Select", "Keep", "G-Sight question", "Variable / item", "Group", "Section",
+            "Stage", "Included splits", "KPI Summary", "KPI short label", "Question type",
+            "Metrics shown in Excel", "Status",
+        ],
+    }
     with st.form(f"questions_form_{key}_{revision}_{view_key}"):
         edited = st.data_editor(
             pd.DataFrame(visible), hide_index=True, width="stretch", height=560,
             key=f"questions_table_{key}_{revision}_{view_key}",
             disabled=["G-Sight question", "Status"],
-            column_order=["Select", "Keep", "G-Sight question", "Variable / item", "Group", "Section",
-                          "Stage", "Included splits", "KPI Summary", "KPI short label", "Question type",
-                          "Metrics shown in Excel", "Status"],
+            column_order=column_sets[table_view],
             column_config={
                 "Select": st.column_config.CheckboxColumn("Select", pinned=True, help="Select rows for the bulk action below."),
                 "Keep": st.column_config.CheckboxColumn("Keep", pinned=True, help="Untick to exclude this question from Excel."),
@@ -233,25 +255,37 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
                 row = by_id[edit["G-Sight question"]]
                 prior_type = row["Type"]
                 prior_metrics = list(row["Selected metrics"])
-                change_type(row, edit["Question type"])
+                edited_type = edit.get("Question type", prior_type)
+                change_type(row, edited_type)
                 edited_metrics = _exact_metric_selection(
-                    edit["Metrics shown in Excel"], row["Available metric list"]
+                    edit.get("Metrics shown in Excel", _metric_text(prior_metrics)),
+                    row["Available metric list"],
                 )
-                if edit["Question type"] == prior_type or {
+                if edited_type == prior_type or {
                     _metric_key(metric) for metric in edited_metrics
                 } != {_metric_key(metric) for metric in prior_metrics}:
                     set_metric_selection(row, edited_metrics)
-                variable = _clean(edit["Variable / item"])
+                grouped_before = bool(row.get("Group ID"))
+                variable = _clean(edit.get(
+                    "Variable / item",
+                    row.get("Metric label") if grouped_before else row["Display label"],
+                ))
                 if not variable:
                     raise ValueError("A variable or item name is empty.")
-                section = _clean(edit["Section"])
-                group = _clean(edit["Group"])
+                section = _clean(edit.get("Section", row.get("Section", "")))
+                group = _clean(edit.get(
+                    "Group", row["Display label"] if grouped_before else ""
+                ))
                 row.update({
-                    "Keep": bool(edit["Keep"]), "Section": section,
-                    "Stage": _clean(edit["Stage"]) or "Unassigned",
-                    "Included splits": _clean(edit["Included splits"]) or "All",
-                    "KPI Summary": bool(edit["KPI Summary"]),
-                    "Summary label": _clean(edit["KPI short label"]),
+                    "Keep": bool(edit.get("Keep", row["Keep"])), "Section": section,
+                    "Stage": _clean(edit.get("Stage", row.get("Stage", ""))) or "Unassigned",
+                    "Included splits": _clean(
+                        edit.get("Included splits", row.get("Included splits", "All"))
+                    ) or "All",
+                    "KPI Summary": bool(edit.get("KPI Summary", row.get("KPI Summary"))),
+                    "Summary label": _clean(
+                        edit.get("KPI short label", row.get("Summary label", ""))
+                    ),
                 })
                 if group:
                     row["Group ID"] = _group_id(section, group)

@@ -7,62 +7,46 @@ from templyfier.preferences import has_seen_onboarding, mark_onboarding_seen
 
 TUTORIAL_STEPS = (
     {
-        "eyebrow": "1 · À quoi sert le Templyfier ?",
-        "title": "Passer des exports G-Sight à des toplines prêtes à lire",
+        "eyebrow": "1 · Add the study files",
+        "title": "Start with G-Sight and the matching CMR export",
         "body": (
-            "Le Templyfier consolide les exports, nettoie la structure et propose une lecture CMI. "
-            "Il reconnaît notamment les formats CLT/HUT, les tests Monadic/Paired, les splits et les benchmarks."
+            "Select all G-Sight DataViz outputs together. You can use one workbook "
+            "containing every split or one workbook per split."
         ),
         "points": (
-            "Un seul fichier Excel final au lieu d’une consolidation manuelle",
-            "Un ordre de questions et des labels propres proposés automatiquement",
-            "Des gaps, significativités et KPI Summary cohérents avec le benchmark choisi",
-            "Une explication détaillée de chaque win, parité, résultat partagé ou loss",
+            "G-Sight output(s): required",
+            "Matching CMR export: required",
+            "Templyfier proposes splits, benchmarks, stages and question types automatically",
         ),
-        "callout": "Le Templyfier propose ; le CMI valide toujours avant la génération.",
+        "callout": "Your files stay in the current processing session.",
     },
     {
-        "eyebrow": "2 · Ce qu’il faut préparer",
-        "title": "Dépose tous les exports utiles en une seule fois",
+        "eyebrow": "2 · Confirm the important choices",
+        "title": "Check only what can materially change the Excel output",
         "body": (
-            "Pour chaque benchmark que tu veux utiliser, exporte dans G-Sight tous les splits que tu souhaites retrouver "
-            "dans les toplines. Sélectionne ensuite tous ces fichiers ensemble dans le Templyfier."
+            "Confirm the study format, output layout and proposed split names. "
+            "Then choose the default results shown in Excel for each question type."
         ),
         "points": (
-            "Obligatoire : un export G-Sight pour chaque combinaison split × benchmark souhaitée",
-            "Exemple : 5 splits face à 2 benchmarks = 10 exports G-Sight à charger ensemble",
-            "Facultatif : CMR request export pour les Fantasy names ou Formula descriptions/codes",
-            "Facultatif : profil CMI enregistré ou fichier de réglages d’un précédent projet",
+            "Rows marked Please check need a CMI decision",
+            "Use Select when one change should apply to several questions",
+            "Use the table views to show only the columns needed for the current task",
         ),
-        "callout": "N’oublie aucun couple split × benchmark : l’outil ne peut créer que les comparaisons présentes dans les exports chargés.",
+        "callout": "Safe defaults are already selected. Advanced settings are optional.",
     },
     {
-        "eyebrow": "3 · Le parcours recommandé",
-        "title": "Quatre vérifications simples, puis le fichier est prêt",
-        "body": "Tu peux accepter les propositions telles quelles ou ouvrir uniquement les réglages dont tu as besoin.",
-        "points": (
-            "1. Ajouter les fichiers",
-            "2. Vérifier les questions, l’ordre, les labels et les métriques",
-            "3. Contrôler les noms produits, splits, benchmarks et les éventuels fichiers manquants",
-            "4. Prévisualiser les onglets, choisir le KPI Summary puis générer les toplines",
-        ),
-        "callout": "Pour une question à échelle, Mean, Top/Bottom Box, T2B/T3B et B2B/B3B restent sélectionnables question par question.",
-    },
-    {
-        "eyebrow": "4 · Exemple concret",
-        "title": "Un TOTAL et plusieurs splits face à deux benchmarks",
+        "eyebrow": "3 · Generate",
+        "title": "Create the toplines when the review is ready",
         "body": (
-            "Tu déposes tous les exports, même si G-Sight a réordonné les produits. Le Templyfier rapproche les codes stables, "
-            "détecte le split et crée une lecture séparée pour chaque benchmark."
+            "You can generate immediately after the question review or open optional "
+            "settings for product names, ordering and detailed metric exceptions."
         ),
         "points": (
-            "Des onglets comme TOTAL vs. BENCH 1 et TOTAL vs. BENCH 2",
-            "Les gaps et significativités correspondant uniquement au benchmark de la feuille",
-            "Un KPI Summary sur TOTAL seulement ou sur tous les splits",
-            "Un onglet KPI Details pour comprendre les valeurs et la métrique derrière chaque symbole",
-            "Des noms produits remplaçables par les Fantasy names de la CMR",
+            "The Generate button stays disabled if a required check is unresolved",
+            "No missing score, gap or significance is invented",
+            "Download the finished Excel file when generation completes",
         ),
-        "callout": "En cas de doute, les colonnes Type d’information et Point d’attention expliquent les propositions sans les imposer.",
+        "callout": "If something blocks generation, Templyfier tells you exactly what to correct.",
     },
 )
 
@@ -77,31 +61,31 @@ def _tutorial_dialog() -> None:
     for point in content["points"]:
         st.markdown(f"- {point}")
     st.info(content["callout"], icon="💡")
-    st.progress((step + 1) / len(TUTORIAL_STEPS), text=f"Étape {step + 1} sur {len(TUTORIAL_STEPS)}")
+    st.progress((step + 1) / len(TUTORIAL_STEPS), text=f"Step {step + 1} of {len(TUTORIAL_STEPS)}")
 
-    previous_col, spacer, next_col = st.columns([1, 2.2, 1])
-    if previous_col.button("← Précédent", disabled=step == 0, width='stretch'):
+    previous_col, _, next_col = st.columns([1, 2.2, 1])
+    if previous_col.button("Previous", disabled=step == 0, width="stretch"):
         st.session_state.tutorial_step = step - 1
         st.session_state.tutorial_reopen = True
         st.rerun()
     if step < len(TUTORIAL_STEPS) - 1:
-        if next_col.button("Suivant →", type="primary", width='stretch'):
+        if next_col.button("Next", type="primary", width="stretch"):
             st.session_state.tutorial_step = step + 1
             st.session_state.tutorial_reopen = True
             st.rerun()
-    elif next_col.button("Commencer", type="primary", width='stretch'):
+    elif next_col.button("Start", type="primary", width="stretch"):
         st.session_state.tutorial_step = 0
         st.rerun()
 
 
 def render_onboarding() -> None:
-    """Non-blocking first visit; the full guide is always available on demand."""
+    """Keep a short optional guide available without interrupting the main journey."""
     _, help_col = st.columns([7, 1.35])
     help_clicked = help_col.button(
-        "❔ Aide",
+        "Help",
         key="open_tutorial",
-        width='stretch',
-        help="Rouvrir le didacticiel d’utilisation.",
+        width="stretch",
+        help="Open the three-step quick guide.",
     )
 
     first_visit = "onboarding_checked" not in st.session_state
@@ -111,7 +95,10 @@ def render_onboarding() -> None:
         if not has_seen_onboarding():
             mark_onboarding_seen()
             st.session_state.tutorial_step = 0
-            st.info('Pour commencer : dépose tes exports, vérifie les suggestions puis génère le fichier. Le bouton Aide reste disponible ; aucun réglage avancé n’est obligatoire.')
+            st.info(
+                "Start by adding the G-Sight outputs and CMR export. Safe defaults are "
+                "already selected; Help remains available at the top of the page."
+            )
     if help_clicked:
         st.session_state.tutorial_step = 0
     if show_tutorial:

@@ -9,7 +9,7 @@ import streamlit as st
 from question_editor import render_question_editor
 
 from templyfier.core import TemplyfierError
-from templyfier.review import audit_questions
+from templyfier.review import audit_questions, preview_rows
 from templyfier.smart import (
     STANDARD_METRICS,
     audit_input_plan,
@@ -45,9 +45,15 @@ def _question_content_signature(frame):
     return hashlib.sha1(content.to_json(orient='records').encode('utf-8')).hexdigest()
 
 
-def _step(number, title, hint):
+def _step(stage, title, hint):
+    step_number = {
+        "upload": 1,
+        "setup": 2,
+        "questions": 3,
+        "generate": 4,
+    }.get(str(stage), stage)
     st.markdown(
-        f'<div class="step-title" id="etape-{number}"><span class="step-number">{number}</span>{title}</div>'
+        f'<div class="step-title" id="etape-{stage}"><span class="step-number">{step_number}</span>{title}</div>'
         f'<div class="hint">{hint}</div>',
         unsafe_allow_html=True,
     )
@@ -257,8 +263,6 @@ def render_smart_mode():
         protected_ids=state.get("profile_protected_ids", []), project_key=_files_key(exports),
         show_optional=False, stage_order=clt_stage_order,
     )
-    quick_generate_slot = st.empty()
-
     product_options = {
         f"{index + 1}. {name[:70]}": index
         for index, name in enumerate(info.product_names)
@@ -602,10 +606,106 @@ def render_smart_mode():
         if next_steps:st.info('What to do next\n\n'+ '\n'.join(f'{i}. {item}' for i,item in enumerate(next_steps,1)))
 
     _step("generate", "Generate the Excel file", "The existing safety checks still protect the export.")
+    planned_workbook_sheets = (
+        (["Screener(s)"] if include_screeners else [])
+        + planned_topline_sheets
+        + planned_summary_sheets
+    )
+    with st.container(border=True):
+        st.markdown("### Preview the final Excel")
+        st.caption(
+            "Check the workbook structure before generation. Scores are shown as dashes "
+            "because this preview never fabricates results."
+        )
+        if not ready:
+            st.warning(
+                "This is a preliminary preview. Items marked above must still be corrected "
+                "before the Excel file can be generated.",
+                icon=":material/visibility:",
+            )
+        preview_sheet = st.selectbox(
+            "Worksheet to preview",
+            planned_workbook_sheets or ["No worksheet available"],
+            index=(
+                planned_workbook_sheets.index(planned_topline_sheets[0])
+                if planned_topline_sheets and planned_topline_sheets[0] in planned_workbook_sheets
+                else 0
+            ),
+            key=f"excel_preview_sheet_{key}",
+        )
+        st.caption(
+            f"Planned workbook: {len(planned_workbook_sheets)} worksheet(s) · "
+            + " · ".join(planned_workbook_sheets[:8])
+            + (" · …" if len(planned_workbook_sheets) > 8 else "")
+        )
+        if preview_sheet == "Screener(s)":
+            st.info(
+                "The Screener worksheet(s) will be copied from the G-Sight source and kept "
+                "separate from the topline reading."
+            )
+        elif preview_sheet in planned_summary_sheets:
+            summary_preview = pd.DataFrame([
+                {
+                    "KPI": row.get("Summary label") or row.get("Display label"),
+                    "Result used": " · ".join(row.get("Selected metrics", [])[:2]),
+                }
+                for row in question_table.to_dict("records")
+                if row.get("Keep") and row.get("KPI Summary")
+            ])
+            for label in (benchmark_short_labels or clean_product_labels):
+                summary_preview[str(label)] = "—"
+            if summary_preview.empty:
+                st.info("Select at least one KPI in the question table to populate this worksheet.")
+            else:
+                st.dataframe(summary_preview, hide_index=True, width="stretch", height=300)
+        elif preview_sheet in planned_topline_sheets:
+            preview_split = next(
+                (
+                    split for split in sorted(unique_splits, key=len, reverse=True)
+                    if preview_sheet == split or preview_sheet.startswith(f"{split} vs ")
+                ),
+                unique_splits[0] if unique_splits else None,
+            )
+            structure = preview_rows(
+                question_table.to_dict("records"),
+                split_name=preview_split,
+            )
+            visual_rows = pd.DataFrame([
+                {
+                    "Section": row.get("Section", ""),
+                    "Variable shown in Excel": row.get("Variable clean", ""),
+                    "Result shown in Excel": row.get("Item / métrique", ""),
+                }
+                for row in structure[:20]
+            ])
+            used_headers = set(visual_rows.columns)
+            for index, label in enumerate(clean_product_labels, 1):
+                header = str(label or f"Product {index}")
+                if header in used_headers:
+                    header = f"{header} ({index})"
+                used_headers.add(header)
+                visual_rows[header] = "—"
+            if show_difference:
+                delta_labels = benchmark_short_labels or ["benchmark"]
+                for index, label in enumerate(delta_labels, 1):
+                    header = f"Δ vs {label}" if test_type == "Monadic" else f"Delta {index}"
+                    if header in used_headers:
+                        header = f"{header} ({index})"
+                    used_headers.add(header)
+                    visual_rows[header] = "—"
+            if visual_rows.empty:
+                st.info("No retained question currently applies to this worksheet.")
+            else:
+                st.dataframe(visual_rows, hide_index=True, width="stretch", height=420)
+                if len(structure) > len(visual_rows):
+                    st.caption(
+                        f"First {len(visual_rows)} of {len(structure)} result rows shown. "
+                        "The generated worksheet will contain the complete selection."
+                    )
     output_name = st.text_input("Final file name", "Toplines_clean.xlsx", key=f"smart_output_{key}")
     if not output_name.lower().endswith(".xlsx"):
         output_name += ".xlsx"
-    with quick_generate_slot.container(border=True):
+    with st.container(border=True):
         quick_summary = st.columns(4)
         quick_summary[0].metric("Questions", len(kept))
         quick_summary[1].metric("Splits", len(unique_splits))
