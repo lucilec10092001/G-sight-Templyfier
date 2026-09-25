@@ -247,6 +247,7 @@ class TemplyfierRegressionTests(unittest.TestCase):
         self.assertEqual(len(info.embedded_splits), 6)
         self.assertEqual(len(info.product_names), 8)
         self.assertIn("Comparaison benchmark", {item.role for item in info.inputs})
+        self.assertTrue(all(item.source_sheet for item in info.inputs))
 
         chosen = next(item for item in info.questions if item.question_type == "Standard" and "Mean" in item.metrics)
         row = proposal_to_row(chosen)
