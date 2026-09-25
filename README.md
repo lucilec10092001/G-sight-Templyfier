@@ -1,4 +1,4 @@
-# G-Sight Templyfier v58
+# G-Sight Templyfier v59
 
 Templyfier turns G-Sight DataViz outputs into editable Excel toplines for consumer research studies. The interface is in English and the question detection supports English and French source wording. No consumer files or credentials are included in this repository.
 
@@ -32,7 +32,7 @@ Question ordering sits directly below the table. Multiple questions or groups ca
 
 Before generation, **Preview the final Excel** shows the planned worksheets and a simplified Excel-like view of sections, variables, result rows, products and delta columns. Scores remain blank until generation; the preview never invents consumer results.
 
-Metric recipes for Standard, Strength, CATA, Bipolar, Listing, Preference and Project-specific questions are always visible before the table. In the table, tick one question for a question-specific metric selection or several same-type questions for a shared selection. Metrics are clicked from their available list; no metric name has to be typed. Optional result-row renaming appears only for a single selected question.
+Metric presets for Standard, Strength, CATA, Bipolar, Listing, Preference and Project-specific questions are always available before the table, even when a type is not currently detected. Every question then has an editable **Metrics** dropdown directly in its table row. Changing a question type applies that type's current preset automatically; the CMI can then adjust that one row without opening another editor or typing metric names.
 
 ## Benchmark and split handling
 
@@ -59,4 +59,4 @@ For an internal server deployment, follow `SERVER_DEPLOYMENT.md`. The current pu
 
 ## Validation
 
-The calculation engine and Excel writer were preserved. Version 58 replaces manual metric entry and the separate exception editor with one selection-driven table workflow. See `CHANGES_v58.md` and `VALIDATION_v58.md`.
+The calculation engine and Excel writer were preserved. Version 59 moves question-specific metric customisation directly into each table row and keeps row selection for shared bulk changes only. See `CHANGES_v59.md` and `VALIDATION_v59.md`.

@@ -4,6 +4,7 @@ import pandas as pd
 import streamlit as st
 
 from templyfier.review import metric_presets, plan_metric_change
+from templyfier.editor_model import QUESTION_TYPES
 from templyfier.smart import _metric_key
 from templyfier.english_catalog import TEXT
 
@@ -11,23 +12,37 @@ from templyfier.english_catalog import TEXT
 def render_type_metric_editor(rows, key, revision, commit=None):
     """Offer one visible recipe per question type before question-level exceptions."""
     kept = [row for row in rows if row.get('Keep')]
-    present_types = list(dict.fromkeys(row['Type'] for row in kept))
-    if not present_types:
+    if not kept:
         return
     st.markdown('### Default results by question type')
     st.caption(
-        'Start with the main rule: choose what Standard, Strength, CATA, Listing, '
-        'Preference and Project-specific questions should show in Excel. You can '
-        'still make an exception for any question in the table below.'
+        'Set the default once for every question type. These defaults are applied automatically; '
+        'you can still change the Metrics cell of any question in the table below.'
     )
     selected_type = st.segmented_control(
-        'Question type recipe', present_types,
+        'Question type recipe', list(QUESTION_TYPES),
         format_func=lambda value: TEXT.get(value, value),
-        default=present_types[0], key=f'type_metric_kind_{key}_{revision}',
+        default=QUESTION_TYPES[0], key=f'type_metric_kind_{key}_{revision}',
     )
     candidates = [row for row in kept if row['Type'] == selected_type]
-    source = candidates[0]
     type_display = TEXT.get(selected_type, selected_type)
+    if not candidates:
+        defaults = {
+            'Standard': 'Mean, Top Box, Top 2 Boxes and Bottom 2 Boxes when available.',
+            'Strength': 'The available Too weak, Just about right and Too strong responses.',
+            'CATA': 'The positive / 2- response for each item.',
+            'Listing': 'All individual response options.',
+            'Bipolaire': 'All individual scale points.',
+            'Preference': 'All individual products or preference options.',
+            'Autres': 'All individual project-specific response options.',
+        }
+        st.info(
+            f'No {type_display} question is currently detected. Its preset is already ready: '
+            f'{defaults[selected_type]} If you change a question to this type in the table, '
+            'Templyfier applies this preset automatically.'
+        )
+        return
+    source = candidates[0]
     current_recipes = {tuple(_metric_key(metric) for metric in row['Selected metrics']) for row in candidates}
     if len(current_recipes) == 1:
         st.caption(f'{len(candidates)} {type_display} question(s) currently use the same recipe.')

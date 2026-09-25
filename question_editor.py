@@ -26,8 +26,19 @@ def _group_id(section, label):
     return hashlib.sha1(f"{section}\0{label.casefold()}".encode("utf-8")).hexdigest()[:12]
 
 
-def _metric_text(metrics):
-    return "; ".join(str(metric) for metric in metrics)
+def _apply_table_metric_edit(row, edited_type, edited_metrics, type_sources):
+    """Apply one editable table row and honour the preset of a newly selected type."""
+    previous_type = row["Type"]
+    if edited_type != previous_type:
+        change_type(row, edited_type)
+        source = type_sources.get(edited_type)
+        if source is not None:
+            matched, missing = safe_metric_match(source, row, source.get("Selected metrics", []))
+            if not missing and matched:
+                set_metric_selection(row, matched)
+        return
+    chosen = list(edited_metrics) if isinstance(edited_metrics, (list, tuple)) else []
+    set_metric_selection(row, chosen)
 
 
 def _apply_selected_metrics(rows, selected_ids, chosen, labels=None):
@@ -129,7 +140,8 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
     st.markdown("### Review questions")
     st.caption(
         "Everything that affects the Excel output is in this table. Filtering only changes the view; "
-        "hidden rows stay in the output. Select rows when one change should apply to several questions."
+        "hidden rows stay in the output. Open a Metrics cell to customise one question. Select rows "
+        "only when one shared change should apply to several questions."
     )
     filter_cols = st.columns([2.2, 1.1, 1.1, 1.1, 1.35])
     search = filter_cols[0].text_input(
@@ -185,7 +197,7 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
             "KPI Summary": bool(row.get("KPI Summary")),
             "KPI short label": row.get("Summary label", ""),
             "Question type": row["Type"],
-            "Metrics shown in Excel": _metric_text(row.get("Selected metrics", [])),
+            "Metrics shown in Excel": list(row.get("Selected metrics", [])),
             "Status": "Please check" if question_id in attention_ids else "Ready",
         })
 
@@ -215,12 +227,12 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
     edited = st.data_editor(
         pd.DataFrame(visible), hide_index=True, width="stretch", height=560,
         key=f"questions_table_{key}_{revision}_{view_key}",
-        disabled=["G-Sight question", "Metrics shown in Excel", "Status"],
+        disabled=["G-Sight question", "Status"],
         column_order=column_sets[table_view],
         column_config={
             "Select": st.column_config.CheckboxColumn(
                 "Select", pinned=True,
-                help="Select one row for a question-specific change, or several rows for one shared change.",
+                help="Select one or several rows only when you want to apply one shared change.",
             ),
             "Keep": st.column_config.CheckboxColumn(
                 "Keep", pinned=True, help="Untick to exclude this question from Excel."
@@ -245,9 +257,15 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
             "Question type": st.column_config.SelectboxColumn(
                 options=list(QUESTION_TYPES), required=True, width="medium"
             ),
-            "Metrics shown in Excel": st.column_config.TextColumn(
+            "Metrics shown in Excel": st.column_config.MultiselectColumn(
+                "Metrics",
                 width="large",
-                help="Select the row, then click the metrics to keep in the editor directly below the table.",
+                options=list(dict.fromkeys(
+                    metric
+                    for source_row in rows
+                    for metric in source_row.get("Available metric list", [])
+                )),
+                help="Open the list and tick the results to show for this question in Excel.",
             ),
             "Status": st.column_config.TextColumn(width="small"),
         },
@@ -256,16 +274,21 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
     selected_ids = edited.loc[
         edited["Select"].astype(bool), "G-Sight question"
     ].astype(str).tolist()
-    edited_by_id = {
-        str(item["G-Sight question"]): item for item in edited.to_dict("records")
-    }
-
     def apply_visible_table_edits():
         changed = deepcopy(rows)
         by_id = {row["Question ID"]: row for row in changed}
+        type_sources = {}
+        for source_row in rows:
+            if source_row.get("Keep") and source_row["Type"] not in type_sources:
+                type_sources[source_row["Type"]] = source_row
         for edit in edited.to_dict("records"):
             row = by_id[edit["G-Sight question"]]
-            change_type(row, edit.get("Question type", row["Type"]))
+            _apply_table_metric_edit(
+                row,
+                edit.get("Question type", row["Type"]),
+                edit.get("Metrics shown in Excel", row.get("Selected metrics", [])),
+                type_sources,
+            )
             grouped_before = bool(row.get("Group ID"))
             variable = _clean(edit.get(
                 "Variable / item",
@@ -299,124 +322,14 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
                 row["Metric label"] = ""
         return changed, by_id
 
-    st.markdown("#### Edit selected questions")
-    if not selected_ids:
-        st.info(
-            "Tick **Select** on one question to change its metrics, or on several questions "
-            "to apply the same change to all selected rows."
-        )
-        apply_metrics_clicked = False
-        chosen_metrics = []
-        selected_metric_labels = {}
-    else:
-        selected_rows = [
-            next(row for row in rows if row["Question ID"] == question_id)
-            for question_id in selected_ids
-        ]
-        selected_types = {
-            edited_by_id[question_id].get("Question type", row["Type"])
-            for question_id, row in zip(selected_ids, selected_rows)
-        }
+    if selected_ids:
         st.caption(
-            f"{len(selected_ids)} question(s) selected: "
-            + " · ".join(
-                _clean(row.get("Metric label") or row.get("Display label") or row["Question ID"])
-                for row in selected_rows[:4]
-            )
-            + (" · …" if len(selected_rows) > 4 else "")
+            f"{len(selected_ids)} question(s) selected for an optional shared change below. "
+            "Metrics are edited directly in each row."
         )
-        if len(selected_types) != 1:
-            st.warning(
-                "The selected questions have different types. Select questions of the same "
-                "type to change their metrics together."
-            )
-            apply_metrics_clicked = False
-            chosen_metrics = []
-            selected_metric_labels = {}
-        else:
-            source = selected_rows[0]
-            type_name = next(iter(selected_types))
-            available_metrics = list(source["Available metric list"])
-            chosen_metrics = st.multiselect(
-                f"Results shown in Excel for the selected {type_name} question(s)",
-                options=available_metrics,
-                default=[
-                    metric for metric in available_metrics
-                    if _metric_key(metric) in {
-                        _metric_key(value) for value in source["Selected metrics"]
-                    }
-                ],
-                key=(
-                    f"selected_metrics_{key}_{revision}_"
-                    + hashlib.sha1("\0".join(selected_ids).encode("utf-8")).hexdigest()[:10]
-                ),
-                help="Click a result to add or remove it. No typing is required.",
-            )
-            selected_metric_labels = {}
-            if len(selected_ids) == 1 and chosen_metrics:
-                with st.expander("Rename these result rows in Excel — optional", expanded=False):
-                    st.caption(
-                        "Source metric names remain unchanged. Edit only the wording shown in the final Excel."
-                    )
-                    label_table = st.data_editor(
-                        pd.DataFrame([
-                            {
-                                "G-Sight result": metric,
-                                "Name shown in Excel": source.get("Metric labels", {}).get(metric, metric),
-                            }
-                            for metric in chosen_metrics
-                        ]),
-                        hide_index=True,
-                        width="stretch",
-                        disabled=["G-Sight result"],
-                        column_config={
-                            "G-Sight result": st.column_config.TextColumn(width="large"),
-                            "Name shown in Excel": st.column_config.TextColumn(required=True, width="large"),
-                        },
-                        key=(
-                            f"selected_metric_labels_{key}_{revision}_"
-                            + hashlib.sha1(
-                                ("\0".join(selected_ids + chosen_metrics)).encode("utf-8")
-                            ).hexdigest()[:10]
-                        ),
-                    )
-                    selected_metric_labels = dict(zip(
-                        label_table["G-Sight result"],
-                        label_table["Name shown in Excel"],
-                    ))
-            recipes = {
-                tuple(_metric_key(metric) for metric in row["Selected metrics"])
-                for row in selected_rows
-            }
-            if len(recipes) > 1:
-                st.caption(
-                    f"The selected rows currently use {len(recipes)} different recipes. "
-                    "Applying replaces them with the selection above when a safe match exists."
-                )
-            apply_metrics_clicked = st.button(
-                "Apply metrics to selected questions",
-                type="primary",
-                disabled=not chosen_metrics,
-                icon=":material/checklist:",
-                key=f"apply_selected_metrics_{key}_{revision}",
-            )
-
-    if apply_metrics_clicked:
-        try:
-            table_changes, _ = apply_visible_table_edits()
-            changed, skipped = _apply_selected_metrics(
-                table_changes, selected_ids, chosen_metrics, selected_metric_labels
-            )
-            commit(
-                changed,
-                f"Metrics updated for {len(selected_ids) - len(skipped)} selected question(s)"
-                + (f"; {len(skipped)} left unchanged because no safe match was available." if skipped else "."),
-            )
-        except ValueError as exc:
-            st.error(str(exc))
 
     save_table_clicked = st.button(
-        "Save table changes", type="primary", icon=":material/save:",
+        "Save question changes", type="primary", icon=":material/save:",
         key=f"save_question_table_{key}_{revision}_{view_key}",
     )
     with st.expander("Other changes for selected questions — optional", expanded=False):
