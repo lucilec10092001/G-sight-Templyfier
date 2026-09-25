@@ -8,288 +8,291 @@ import streamlit as st
 from question_order import question_order
 from grouping_ui import render_group_assistant
 from templyfier.grouping import remember_edit, undo_edit, redo_edit
-from templyfier.review import editor_view_key
-from review_ui import render_review_center
+from templyfier.review import editor_view_key, audit_questions
 from metric_editor import render_metric_editor, render_type_metric_editor
 from memory_ui import render_memory_assistant
-from templyfier.editor_model import (
-    QUESTION_TYPES, change_type, export_rows, group_rows, prepare_rows,
-    rename_group, reorder_rows, set_metric_selection,
-)
-from templyfier.smart import STANDARD_METRICS, _metric_key, default_metric_selection, proposal_to_row
-from templyfier.english_catalog import TEXT
-
-TYPE_EXPLANATIONS={
-    'Standard':'A rating scale such as liking or purchase intent. Excel usually shows Mean and selected Top/Bottom Boxes.',
-    'Strength':'An intensity or JAR scale such as too weak, just right or too strong. Excel shows the useful response levels.',
-    'CATA':'A Check All That Apply question. Excel can show the positive response, the No response, or both.',
-    'Bipolaire':'A scale between two opposite attributes. Excel can show individual points and available Top/Bottom Boxes.',
-    'Listing':'A list of answer choices such as colours or benefits. Excel shows the selected answer options, without Mean.',
-    'Preference':'A preference question such as preferred product, I prefer or liked the most. Excel shows the available choices.',
-    'Autres':'A project-specific question such as comparison with current. Choose the useful source responses.',
-}
+from templyfier.editor_model import QUESTION_TYPES, change_type, export_rows, prepare_rows, reorder_rows
+from templyfier.smart import proposal_to_row
 
 
-def render_question_editor(frame, proposals, key, memory=None, protected_ids=(), project_key=None, show_optional=True, stage_order=()):
-    model_key = f'question_model_{key}'
+def _clean(value):
+    return " ".join(str(value or "").split())
+
+
+def _group_id(section, label):
+    return hashlib.sha1(f"{section}\0{label.casefold()}".encode("utf-8")).hexdigest()[:12]
+
+
+def render_question_editor(frame, proposals, key, memory=None, protected_ids=(), project_key=None,
+                           show_optional=True, stage_order=()):
+    """Render one calm review surface for all question-level decisions."""
+    model_key = f"question_model_{key}"
     if model_key not in st.session_state:
-        initial_rows = prepare_rows(frame.to_dict('records'), proposals, stage_order)
+        initial_rows = prepare_rows(frame.to_dict("records"), proposals, stage_order)
         if len(stage_order) > 1:
-            normalized = [(index, re.sub(r'[\W_]+', ' ', str(stage).casefold()).strip()) for index, stage in enumerate(stage_order)]
+            normalized = [(index, re.sub(r"[\W_]+", " ", str(stage).casefold()).strip())
+                          for index, stage in enumerate(stage_order)]
+
             def stage_rank(item):
-                text = re.sub(r'[\W_]+', ' ', ' '.join(str(item.get(field, '')) for field in ('Stage', 'Question ID', 'Display label', 'Section')).casefold()).strip()
-                matched = next((index for index, stage in normalized if stage and re.search(rf'\b{re.escape(stage)}\b', text)), len(normalized))
-                return matched, int(item.get('Order', 999999))
+                text = re.sub(
+                    r"[\W_]+", " ",
+                    " ".join(str(item.get(field, "")) for field in
+                             ("Stage", "Question ID", "Display label", "Section")).casefold(),
+                ).strip()
+                matched = next((index for index, stage in normalized
+                                if stage and re.search(rf"\b{re.escape(stage)}\b", text)), len(normalized))
+                return matched, int(item.get("Order", 999999))
+
             initial_rows = sorted(initial_rows, key=stage_rank)
             for index, row in enumerate(initial_rows, 1):
-                row['Order'] = index
-        st.session_state[model_key] = {'rows': initial_rows, 'revision': 0, 'history': [],
-                                       'stage_order': list(stage_order)}
+                row["Order"] = index
+        st.session_state[model_key] = {
+            "rows": initial_rows, "revision": 0, "history": [], "stage_order": list(stage_order)
+        }
+
     model = st.session_state[model_key]
-    if 'learning_baseline' not in model:
-        model['learning_baseline'] = prepare_rows([proposal_to_row(p) for p in proposals], proposals, stage_order)
-    rows, revision = model['rows'], model['revision']
+    if "learning_baseline" not in model:
+        model["learning_baseline"] = prepare_rows(
+            [proposal_to_row(proposal) for proposal in proposals], proposals, stage_order
+        )
+    rows, revision = model["rows"], model["revision"]
 
-    def commit(changed, action='Réglages des questions mis à jour.'):
+    def commit(changed, action="Question settings updated.", *, request_rerun=True):
         if remember_edit(model, changed, action):
-            # Render the whole page before rerunning, preserving downstream widgets.
-            st.session_state[f'editor_refresh_{key}'] = True
+            if request_rerun:
+                st.session_state[f"editor_refresh_{key}"] = True
         else:
-            st.info('Aucun changement à appliquer.')
+            st.info("No change to apply.")
 
-    with st.container(horizontal=True):
-        st.button('Annuler la dernière modification', key=f'undo_questions_{key}',
-                     disabled=not model.get('history'), icon=':material/undo:',
-                     help='Restaure les questions, groupes, métriques et ordre. Historique des 20 dernières actions appliquées dans cette session.',
-                     on_click=undo_edit,args=(model,))
-        st.button('Rétablir la modification', key=f'redo_questions_{key}',
-                     disabled=not model.get('redo'), icon=':material/redo:',on_click=redo_edit,args=(model,))
-    if model.get('notice'):
-        st.success(model['notice'])
-
-    st.subheader('Questions, groupes et métriques')
-    st.success('Templyfier has already prepared a complete selection. If the suggestions look right, you do not need to edit or apply every question.')
-    st.caption('Focus on questions marked for review. Use the table or metric editor only when you want to change a suggestion; click Save after an edit. Grouping and reordering are optional.')
-    audit = render_review_center(rows, key)
-
-    attention_ids=audit['attention_ids']
-    by_id={row['Question ID']:row for row in rows}
-    guided_options=list(by_id)
-    default_id=next((row['Question ID'] for row in rows if row['Question ID'] in attention_ids),guided_options[0])
-    guided_key=f'guided_question_{key}'
-    if st.session_state.get(guided_key) not in by_id:
-        st.session_state[guided_key]=default_id
+    audit = audit_questions(rows)
     type_attention_ids = {
-        item['Question ID'] for item in audit['issues']
-        if item.get('Code') in {'uncertain_type', 'unknown_type'}
-    }
-    type_issue_by_id = {
-        item['Question ID']: item.get('Point à traiter', 'Recognition needs confirmation.')
-        for item in audit['issues']
-        if item.get('Code') in {'uncertain_type', 'unknown_type'}
+        item["Question ID"] for item in audit["issues"]
+        if item.get("Code") in {"uncertain_type", "unknown_type"}
     }
     summary = st.columns(3)
-    summary[0].metric('Questions detected', len(rows))
-    summary[1].metric('Question types', len({row['Type'] for row in rows if row.get('Keep')}))
-    summary[2].metric('Types to check', len(type_attention_ids))
-    if not type_attention_ids:
-        st.caption('All question types have a confident proposal. Continue to Metric selection unless you want to make a correction.')
-    type_rows = []
-    blocking_ids = {item['Question ID'] for item in audit['blockers']}
+    summary[0].metric("Questions detected", len(rows))
+    summary[1].metric("Question types", len({row["Type"] for row in rows if row.get("Keep")}))
+    summary[2].metric("To be checked", len(type_attention_ids))
+    st.caption(
+        "Rows marked **Please check** need a quick CMI decision. All other suggestions are ready to use."
+        if type_attention_ids else
+        "All question types have a confident proposal. Keep the defaults or adjust any row."
+    )
+
+    with st.container(horizontal=True):
+        st.button("Undo", key=f"undo_questions_{key}", disabled=not model.get("history"),
+                  icon=":material/undo:", on_click=undo_edit, args=(model,))
+        st.button("Redo", key=f"redo_questions_{key}", disabled=not model.get("redo"),
+                  icon=":material/redo:", on_click=redo_edit, args=(model,))
+    if model.get("notice"):
+        st.toast(model["notice"], icon=":material/check_circle:")
+
+    st.markdown("### Review questions")
+    st.caption(
+        "Everything that affects the Excel output is in this table. Filtering only changes the view; "
+        "hidden rows stay in the output. Select rows when one change should apply to several questions."
+    )
+    filter_cols = st.columns([2.2, 1.2, 1.2, 1.2])
+    search = filter_cols[0].text_input(
+        "Search", key=f"question_search_{key}", placeholder="Question, item, group, section or stage"
+    )
+    scope = filter_cols[1].selectbox(
+        "Show", ["All", "Please check", "Kept", "Excluded"], key=f"question_scope_{key}"
+    )
+    present_types = list(dict.fromkeys(row["Type"] for row in rows))
+    type_filter = filter_cols[2].selectbox(
+        "Question type", ["All", *present_types], key=f"question_type_filter_{key}"
+    )
+    present_stages = list(dict.fromkeys(_clean(row.get("Stage")) or "Unassigned" for row in rows))
+    stage_filter = filter_cols[3].selectbox(
+        "Stage", ["All", *present_stages], key=f"question_stage_filter_{key}"
+    )
+
+    attention_ids = set(audit["attention_ids"])
+    visible = []
     for row in rows:
-        needs_review = row['Question ID'] in type_attention_ids
-        type_rows.append({
-            'Review status': 'Please check' if needs_review else 'Ready',
-            'Why check': type_issue_by_id.get(row['Question ID'], ''),
-            'Question shown in Excel': row.get('Metric label') or row['Display label'],
-            'Question type': row['Type'],
-            'Question ID': row['Question ID'],
+        question_id = row["Question ID"]
+        if scope == "Please check" and question_id not in attention_ids:
+            continue
+        if scope == "Kept" and not row["Keep"]:
+            continue
+        if scope == "Excluded" and row["Keep"]:
+            continue
+        if type_filter != "All" and row["Type"] != type_filter:
+            continue
+        stage = _clean(row.get("Stage")) or "Unassigned"
+        if stage_filter != "All" and stage != stage_filter:
+            continue
+        searchable = " ".join(str(row.get(field, "")) for field in
+                              ("Question ID", "Display label", "Metric label", "Section", "Stage", "Type")).casefold()
+        if search.strip() and search.strip().casefold() not in searchable:
+            continue
+        grouped = bool(row.get("Group ID"))
+        visible.append({
+            "Select": False,
+            "Keep": bool(row["Keep"]),
+            "G-Sight question": question_id,
+            "Variable / item": row.get("Metric label") if grouped else row["Display label"],
+            "Group": row["Display label"] if grouped else "",
+            "Section": row.get("Section", ""),
+            "Stage": stage,
+            "Included splits": row.get("Included splits", "All"),
+            "KPI Summary": bool(row.get("KPI Summary")),
+            "KPI short label": row.get("Summary label", ""),
+            "Question type": row["Type"],
+            "Metrics shown in Excel": " · ".join(row.get("Selected metrics", [])),
+            "Status": "Please check" if question_id in attention_ids else "Ready",
         })
-    st.markdown('#### Check question types')
-    st.caption('Templyfier classified every question. Open the table only when a row says Please check or when you want to correct a type.')
-    with st.expander(f"Review question types - {len(type_attention_ids)} to check", expanded=bool(type_attention_ids)):
-        with st.form(f'type_review_form_{key}_{revision}'):
-            type_edits = st.data_editor(
-                pd.DataFrame(type_rows), hide_index=True, width='stretch',
-                disabled=['Review status', 'Why check', 'Question shown in Excel', 'Question ID'],
-                column_order=['Review status', 'Question shown in Excel', 'Question type', 'Why check', 'Question ID'],
-                key=f'type_review_table_{key}_{revision}',
-                column_config={
-                    'Review status': st.column_config.TextColumn('Status', width='small'),
-                    'Why check': st.column_config.TextColumn('Why Templyfier asks', width='large'),
-                    'Question shown in Excel': st.column_config.TextColumn('Question', width='large'),
-                    'Question type': st.column_config.SelectboxColumn('Question type', options=list(QUESTION_TYPES), required=True, width='medium'),
-                    'Question ID': st.column_config.TextColumn('Source ID', width='medium'),
-                },
-            )
-            if st.form_submit_button('Save question types', type='primary'):
-                changed = deepcopy(rows)
-                changed_by_id = {row['Question ID']: row for row in changed}
-                for edit in type_edits.to_dict('records'):
-                    change_type(changed_by_id[edit['Question ID']], edit['Question type'])
-                commit(changed, 'Question types updated.')
 
-    unassigned_stage_ids = {
-        row['Question ID'] for row in rows
-        if str(row.get('Stage', '')).strip().casefold() in {'', 'unassigned', 'not specified', 'none'}
-    }
-    with st.expander(
-        f"Optional - review or change stage mapping ({len(unassigned_stage_ids)} unassigned)",
-        expanded=bool(unassigned_stage_ids),
-    ):
-        st.caption(
-            'Every detected question is kept, including questions from unfamiliar stages. '
-            'Change the proposed mapping only when needed. You may type any category-specific '
-            'stage, for example Pre-wash, After application or Skin dry-down. Separate multiple stages with a semicolon.'
+    st.caption(f"{len(visible)} of {len(rows)} questions shown.")
+    view_key = editor_view_key(
+        [{"Question ID": row["G-Sight question"]} for row in visible],
+        search, f"{scope}|{type_filter}|{stage_filter}",
+    )
+    with st.form(f"questions_form_{key}_{revision}_{view_key}"):
+        edited = st.data_editor(
+            pd.DataFrame(visible), hide_index=True, width="stretch", height=560,
+            key=f"questions_table_{key}_{revision}_{view_key}",
+            disabled=["G-Sight question", "Metrics shown in Excel", "Status"],
+            column_order=["Select", "Keep", "G-Sight question", "Variable / item", "Group", "Section",
+                          "Stage", "Included splits", "KPI Summary", "KPI short label", "Question type",
+                          "Metrics shown in Excel", "Status"],
+            column_config={
+                "Select": st.column_config.CheckboxColumn("Select", pinned=True, help="Select rows for the bulk action below."),
+                "Keep": st.column_config.CheckboxColumn("Keep", pinned=True, help="Untick to exclude this question from Excel."),
+                "G-Sight question": st.column_config.TextColumn(width="large"),
+                "Variable / item": st.column_config.TextColumn("Variable / item shown in Excel", required=True, width="large"),
+                "Group": st.column_config.TextColumn("Group shown in Excel", width="medium",
+                                                     help="Use the same group name on several rows to group them together."),
+                "Section": st.column_config.TextColumn("Section shown in Excel", width="medium"),
+                "Stage": st.column_config.TextColumn(width="small",
+                                                     help="Type any study-specific stage. Use a semicolon for several stages."),
+                "Included splits": st.column_config.TextColumn(width="medium",
+                                                               help="All, or split names separated with semicolons."),
+                "KPI Summary": st.column_config.CheckboxColumn(width="small"),
+                "KPI short label": st.column_config.TextColumn(width="medium"),
+                "Question type": st.column_config.SelectboxColumn(options=list(QUESTION_TYPES), required=True, width="medium"),
+                "Metrics shown in Excel": st.column_config.TextColumn(width="large"),
+                "Status": st.column_config.TextColumn(width="small"),
+            },
         )
-        if stage_order:
-            st.caption('Stages currently used in this study: ' + ' · '.join(str(stage) for stage in stage_order))
-        stage_rows = [
-            {
-                'Status': 'Please assign' if row['Question ID'] in unassigned_stage_ids else 'Mapped',
-                'Question shown in Excel': row.get('Metric label') or row['Display label'],
-                'Stage mapping': row.get('Stage', 'Unassigned'),
-                'Question ID': row['Question ID'],
-            }
-            for row in rows
-        ]
-        with st.form(f'stage_mapping_form_{key}_{revision}'):
-            stage_edits = st.data_editor(
-                pd.DataFrame(stage_rows), hide_index=True, width='stretch', height=360,
-                disabled=['Status', 'Question shown in Excel', 'Question ID'],
-                column_order=['Status', 'Question shown in Excel', 'Stage mapping', 'Question ID'],
-                key=f'stage_mapping_table_{key}_{revision}',
-                column_config={
-                    'Status': st.column_config.TextColumn('Status', width='small'),
-                    'Question shown in Excel': st.column_config.TextColumn('Question', width='large'),
-                    'Stage mapping': st.column_config.TextColumn(
-                        'Stage', width='medium', required=True,
-                        help='Used to group and order questions. Type a new stage name if it is not in the proposed list.',
-                    ),
-                    'Question ID': st.column_config.TextColumn('Source ID', width='medium'),
-                },
-            )
-            if st.form_submit_button('Save stage mapping'):
-                changed = deepcopy(rows)
-                changed_by_id = {row['Question ID']: row for row in changed}
-                for edit in stage_edits.to_dict('records'):
-                    stage = str(edit.get('Stage mapping', '')).strip()
-                    changed_by_id[edit['Question ID']]['Stage'] = stage or 'Unassigned'
-                commit(changed, 'Stage mappings updated.')
+        st.caption("Optional bulk action — tick Select on adjacent or non-adjacent rows, then choose one action.")
+        bulk_cols = st.columns([1.4, 2.2])
+        bulk_action = bulk_cols[0].selectbox(
+            "Apply to selected rows",
+            ["No bulk action", "Keep", "Exclude", "Set group", "Set section", "Set stage",
+             "Add to KPI Summary", "Remove from KPI Summary"],
+        )
+        bulk_value = bulk_cols[1].text_input(
+            "New value", placeholder="Required for group, section or stage",
+            disabled=bulk_action not in {"Set group", "Set section", "Set stage"},
+        )
+        submitted = st.form_submit_button("Save table changes", type="primary", icon=":material/save:")
 
-    render_type_metric_editor(rows, key, revision)
-    with st.expander('Optional customisation - change metrics for one question', expanded=bool(st.session_state.get(f'metric_batch_{key}'))):
-        render_metric_editor(rows, key, revision, commit)
-
-    with st.expander('Optional customisation — edit all questions in a table'):
-        scope = st.selectbox('Afficher les questions', ['Toutes','À corriger','À vérifier','Gardées','Écartées'], key=f'question_scope_{key}',persist_state='session')
-        search = st.text_input('Rechercher une question, un groupe ou un item', key=f'question_search_{key}',persist_state='session')
-        def clear_filters():
-            st.session_state[f'question_search_{key}']=''
-            st.session_state[f'question_scope_{key}']='Toutes'
-            st.session_state[f'only_attention_{key}']=False
-        st.button('Effacer les filtres',key=f'clear_question_filters_{key}',on_click=clear_filters,
-                  disabled=not search and scope=='Toutes')
-        st.caption('Save table changes before changing the search. Filtering hides rows without excluding them from the export.')
-
-        # The group label is edited once above; only its individual item appears here.
-        visible=[]
-        previous_group = None
-        blocking_ids = {i['Question ID'] for i in audit['blockers']}
-        for row in rows:
-            if ((scope == 'À corriger' and row['Question ID'] not in blocking_ids)
-                or (scope == 'À vérifier' and row['Question ID'] not in audit['attention_ids'])
-                or (scope == 'Gardées' and not row['Keep'])
-                or (scope == 'Écartées' and row['Keep'])):
-                continue
-            searchable = ' '.join(str(row.get(field,'')) for field in ('Question ID','Display label','Metric label','Section','Stage','Type')).casefold()
-            if search.strip() and search.strip().casefold() not in searchable:
-                continue
-            visible.append({
-                'Question ID':row['Question ID'], 'Keep':row['Keep'], 'Type':row['Type'], 'Confidence':row.get('Confidence',''),
-                'Variable / item':row.get('Metric label') if row.get('Group ID') else row['Display label'],
-                'Groupe':row['Display label'] if row.get('Group ID') and row['Group ID'] != previous_group else '',
-                'Section':row['Section'], 'Stage':row.get('Stage', 'Unassigned'), 'KPI Summary':row['KPI Summary'],
-                'Summary label':row['Summary label'], 'Sens favorable':row['Sens favorable'],
-                'Included splits':row['Included splits'],
-                'Métriques retenues':' · '.join(row['Selected metrics']),
-            })
-            previous_group = row.get('Group ID')
-        st.caption(f'{len(visible)} / {len(rows)} questions affichées.')
-        view_key = editor_view_key(visible, search, scope)
-        with st.form(f'questions_form_{key}_{revision}'):
-            edited = st.data_editor(pd.DataFrame(visible, columns=['Question ID','Keep','Type','Confidence','Variable / item','Groupe','Section','Stage','KPI Summary','Summary label','Sens favorable','Included splits','Métriques retenues']), hide_index=True, width='stretch',height=440,
-                column_order=['Keep','Type','Variable / item','Groupe','Section','Stage','Included splits','KPI Summary','Summary label','Sens favorable','Confidence','Question ID','Métriques retenues'],
-                key=f'questions_table_{key}_{revision}_{view_key}', disabled=['Question ID','Confidence','Groupe','Métriques retenues'],
-                column_config={
-                    'Confidence':st.column_config.TextColumn('Recognition confidence',help='Heuristic recognition level, not a statistical probability. Review unfamiliar or ambiguous questions.'),
-                    'Keep':st.column_config.CheckboxColumn('Garder',pinned=True),
-                    'Type':st.column_config.SelectboxColumn('Type de question',options=list(QUESTION_TYPES),required=True,pinned=True),
-                    'Variable / item':st.column_config.TextColumn('Variable / item',required=True,width='large'),
-                    'Question ID':st.column_config.TextColumn('Question G-Sight',width='large'),
-                    'Summary label':st.column_config.TextColumn('Label KPI court'),
-                    'Sens favorable':st.column_config.SelectboxColumn(options=['Automatique','Plus haut','Plus bas','Idéal au centre','Neutre']),
-                    'Stage':st.column_config.TextColumn('Stage', help='Editable stage mapping; use a semicolon for multiple stages.'),
-                    'Included splits':st.column_config.TextColumn('Splits inclus'),
+    if submitted:
+        changed = deepcopy(rows)
+        by_id = {row["Question ID"]: row for row in changed}
+        selected_ids = set(edited.loc[edited["Select"].astype(bool), "G-Sight question"].tolist())
+        try:
+            for edit in edited.to_dict("records"):
+                row = by_id[edit["G-Sight question"]]
+                change_type(row, edit["Question type"])
+                variable = _clean(edit["Variable / item"])
+                if not variable:
+                    raise ValueError("A variable or item name is empty.")
+                section = _clean(edit["Section"])
+                group = _clean(edit["Group"])
+                row.update({
+                    "Keep": bool(edit["Keep"]), "Section": section,
+                    "Stage": _clean(edit["Stage"]) or "Unassigned",
+                    "Included splits": _clean(edit["Included splits"]) or "All",
+                    "KPI Summary": bool(edit["KPI Summary"]),
+                    "Summary label": _clean(edit["KPI short label"]),
                 })
-            st.caption('Changer le type repropose une sélection de métriques pour cette question. Tu pourras ensuite la modifier ci-dessous. Les métriques de type listing ne sont pas interprétées comme des moyennes.')
-            if st.form_submit_button('Save question changes'):
-                changed=deepcopy(rows)
-                by_id={r['Question ID']:r for r in changed}
-                try:
-                    for edit in edited.to_dict('records'):
-                        row=by_id[edit['Question ID']]
-                        change_type(row,edit['Type'])
-                        for field in ('Keep','Section','Stage','KPI Summary','Summary label','Sens favorable','Included splits'):
-                            row[field]=edit[field]
-                        label=str(edit['Variable / item']).strip()
-                        if not label:
-                            raise ValueError('Un libellé de variable ou d’item est vide.')
-                        row['Metric label' if row.get('Group ID') else 'Display label']=label
-                    commit(changed)
-                except ValueError as exc:
-                    st.error(str(exc))
+                if group:
+                    row["Group ID"] = _group_id(section, group)
+                    row["Display label"] = group
+                    row["Metric label"] = variable
+                else:
+                    row["Group ID"] = ""
+                    row["Display label"] = variable
+                    row["Metric label"] = ""
 
+            if bulk_action != "No bulk action" and not selected_ids:
+                raise ValueError("Select at least one row before applying a bulk action.")
+            if bulk_action in {"Set group", "Set section", "Set stage"} and not _clean(bulk_value):
+                raise ValueError("Enter the new value for the selected rows.")
+            for question_id in selected_ids:
+                row = by_id[question_id]
+                if bulk_action == "Keep":
+                    row["Keep"] = True
+                elif bulk_action == "Exclude":
+                    row["Keep"] = False
+                elif bulk_action == "Set group":
+                    label = _clean(bulk_value)
+                    variable = row.get("Metric label") or row["Display label"]
+                    row["Group ID"] = _group_id(row.get("Section", ""), label)
+                    row["Display label"] = label
+                    row["Metric label"] = variable
+                elif bulk_action == "Set section":
+                    row["Section"] = _clean(bulk_value)
+                elif bulk_action == "Set stage":
+                    row["Stage"] = _clean(bulk_value)
+                elif bulk_action == "Add to KPI Summary":
+                    row["KPI Summary"] = True
+                elif bulk_action == "Remove from KPI Summary":
+                    row["KPI Summary"] = False
+            commit(changed, "Question table updated.")
+        except ValueError as exc:
+            st.error(str(exc))
 
-    if show_optional:
-        render_optional_question_tools(key, memory, protected_ids, project_key, stage_order=stage_order)
-    empty=[r for r in rows if r['Keep'] and not r['Selected metrics']]
+    st.markdown("### Change the question order")
+    st.caption("Select one or several questions, including non-adjacent rows, and drag a handle. "
+               "Moves stay local until **Save order**, so the page does not reload after every move.")
+    order_result = question_order(rows, revision, f"order_{key}")
+    event = order_result.reordered
+    if event and event.get("revision") == revision:
+        try:
+            if event["ids"] != [row["Question ID"] for row in rows]:
+                commit(reorder_rows(rows, event["ids"]), "Question order updated.", request_rerun=False)
+        except (ValueError, KeyError, TypeError) as exc:
+            st.error(f"Move not applied: {exc}")
+
+    with st.expander("Advanced metric settings", expanded=bool(st.session_state.get(f"metric_batch_{key}")),
+                     icon=":material/tune:"):
+        st.caption("Use these controls only when a question type or one question needs different result rows.")
+        render_type_metric_editor(model["rows"], key, model["revision"])
+        render_metric_editor(model["rows"], key, model["revision"], commit)
+
+    empty = [row for row in model["rows"] if row["Keep"] and not row["Selected metrics"]]
     if empty:
-        st.warning(f'{len(empty)} question(s) gardée(s) sans métrique : sélectionne au moins une métrique ou décoche Garder.')
-    return pd.DataFrame(export_rows(model['rows']))
+        st.warning(f"{len(empty)} kept question(s) have no metric. Select at least one result or untick Keep.")
+    return pd.DataFrame(export_rows(model["rows"]))
 
 
-def render_optional_question_tools(key, memory=None, protected_ids=(), project_key=None, *, include_reorder=True, include_grouping=True, stage_order=()):
-    """Render optional tools against the existing editor model without changing saved data."""
-    model = st.session_state[f'question_model_{key}']
-    rows, revision = model['rows'], model['revision']
+def render_optional_question_tools(key, memory=None, protected_ids=(), project_key=None, *,
+                                   include_reorder=True, include_grouping=True, stage_order=()):
+    """Backward-compatible advanced tools for saved configurations."""
+    model = st.session_state[f"question_model_{key}"]
+    rows, revision = model["rows"], model["revision"]
 
-    def commit(changed, action='Question settings updated.'):
+    def commit(changed, action="Question settings updated."):
         if remember_edit(model, changed, action):
-            st.session_state[f'editor_refresh_{key}'] = True
-        else:
-            st.info('No change to apply.')
+            st.session_state[f"editor_refresh_{key}"] = True
 
     ignored_by_memory = ()
     if include_grouping:
         if memory is not None:
-            with st.expander('Apply saved client preferences — optional'):
-                st.caption('Use this only when a previous client habit is useful for the current project. Results are never stored.')
-                ignored_by_memory = render_memory_assistant(rows, model['learning_baseline'], memory, key, revision, commit,
-                    protected_ids=protected_ids, pending_metrics=bool(st.session_state.get(f'metric_batch_{key}')), project_key=project_key)
-        with st.expander('Optional customisation - rename or group repeated items once'):
-            render_group_assistant(rows, key, revision, commit, ignored_by_memory=ignored_by_memory,
-                                   stage_names=stage_order)
-
+            ignored_by_memory = render_memory_assistant(
+                rows, model["learning_baseline"], memory, key, revision, commit,
+                protected_ids=protected_ids,
+                pending_metrics=bool(st.session_state.get(f"metric_batch_{key}")), project_key=project_key,
+            )
+        render_group_assistant(rows, key, revision, commit, ignored_by_memory=ignored_by_memory,
+                               stage_names=stage_order)
     if include_reorder:
-        st.caption('Select one or several questions or whole groups, then drag any selected handle. Shift + click selects a range. Make as many moves as needed, then click Save order once.')
-        result = question_order(rows, revision, f'order_{key}')
+        result = question_order(rows, revision, f"order_optional_{key}")
         event = result.reordered
-        if event and event.get('revision') == revision:
-            try:
-                changed = reorder_rows(rows, event['ids'])
-                if event['ids'] != [r['Question ID'] for r in rows]:
-                    commit(changed, 'Question order updated.')
-            except (ValueError, KeyError, TypeError) as exc:
-                st.error(f'Move not applied: {exc}')
-    return pd.DataFrame(export_rows(model['rows']))
+        if event and event.get("revision") == revision and event["ids"] != [row["Question ID"] for row in rows]:
+            commit(reorder_rows(rows, event["ids"]), "Question order updated.")
+    return pd.DataFrame(export_rows(model["rows"]))

@@ -26,7 +26,7 @@ install()
 
 initialize_access()
 privacy_text = ('Internal server processing • files are not sent to an external AI service'
-                if server_mode() else 'Local processing • files stay on this computer; no external AI service')
+                if server_mode() else 'Session-only processing · files are not sent to an external AI service')
 
 st.markdown(
     """
@@ -51,8 +51,8 @@ st.markdown(
       div[data-testid="stButton"] button[kind="primary"], div[data-testid="stDownloadButton"] button {min-height:3rem; font-weight:700; border-radius:12px;}
     </style>
     <div class="hero">
-      <h1>G-Sight Templyfier <span style="font-size:.85rem;opacity:.75">v54</span></h1>
-      <p>Upload your exports. Review the suggestions, then generate your toplines.</p>
+      <h1>G-Sight Templyfier <span style="font-size:.85rem;opacity:.75">v55</span></h1>
+      <p>Turn your G-Sight outputs into review-ready Excel toplines.</p>
       <span class="privacy">🔒 PRIVACY_TEXT</span>
     </div>
     """.replace('PRIVACY_TEXT', privacy_text),
@@ -61,23 +61,12 @@ st.markdown(
 
 render_onboarding()
 
-with st.container(border=True):
-    st.markdown('**A clear route to your Excel toplines**')
-    overview=st.columns(4)
-    for column,title,hint in zip(overview,['Upload files','0 · Confirm study','1 · Choose Excel layout','2 · Confirm content'],['Select the study exports.','Correct only high-impact detection.','Choose layout and Mean precision.','Accept defaults or refine, then generate.']):
-        column.markdown(f'**{title}**')
-        column.caption(hint)
-    st.caption('New to Templyfier? You do not need to configure every optional setting. Your source files remain unchanged.')
-with st.expander("Option avancée · Reprendre exactement la mise en page d’un ancien clean"):
-    st.caption(
-        "À utiliser seulement si le questionnaire, le plan produits et la structure sont les mêmes. "
-        "Ce mode recopie les lignes et la mise en forme du fichier modèle ; il ne recompose pas intelligemment le contenu."
-    )
-    use_legacy_template = st.checkbox(
-        "Utiliser un ancien clean comme modèle strict",
-        value=False,
-        key="use_legacy_template",
-    )
+with st.sidebar:
+    with st.expander("Use an old clean as a strict template — advanced"):
+        st.caption("Use only when the questionnaire, product plan and workbook structure are identical.")
+        use_legacy_template = st.checkbox(
+            "Use legacy template mode", value=False, key="use_legacy_template"
+        )
 
 if not use_legacy_template:
     render_smart_mode()
