@@ -66,6 +66,11 @@ class BenchmarkColumnsTests(unittest.TestCase):
         for name in ('bench-a.xlsx','bench-b.xlsx','bench-c.xlsx'):
             self.assertEqual(_split_detection(ws,name),('TOTAL','High confidence'))
 
+    def test_native_search_value_after_second_colon_is_the_split_name(self):
+        wb=load_workbook(BytesIO(fixture()));ws=wb.active
+        ws['A2']='Search: S-15-Fabcon brand MO: Lenor'
+        self.assertEqual(_split_detection(ws,'export.xlsx'),('LENOR','High confidence'))
+
     def test_native_total_without_search_prefix_is_explicit(self):
         wb=load_workbook(BytesIO(fixture()));ws=wb.active
         ws['A2']='TOTAL'

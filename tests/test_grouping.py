@@ -106,6 +106,13 @@ class GroupingTests(unittest.TestCase):
         item = row('Q-8-Skin_dry down-Overall liking', 'Overall liking')
         self.assertEqual(stage_for(item, ('Skin dry-down',)), 'Skin dry-down')
 
+    def test_manual_unknown_stage_mapping_is_used_directly(self):
+        item = row('Q-8-Overall liking', 'Overall liking')
+        item['Stage'] = 'PRE-WASH'
+        self.assertEqual(stage_for(item), 'PRE-WASH')
+        item['Stage'] = 'PRE-WASH ; AFTER RINSE'
+        self.assertEqual(stage_for(item), 'PRE-WASH/AFTER RINSE')
+
     def test_extra_aggregates_do_not_fragment_response_battery(self):
         rows=battery()
         rows[1]['Available metric list']=['1-No','2-Yes','Top Box']
