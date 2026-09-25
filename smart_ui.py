@@ -110,6 +110,12 @@ def render_smart_mode():
             "questions": pd.DataFrame(question_rows),
             "splits": pd.DataFrame({
                 "Fichier": [item.filename for item in result_inputs],
+                "Source": [
+                    f"{item.filename} / {item.source_sheet}"
+                    if item.embedded_split_count > 1 and item.source_sheet
+                    else item.filename
+                    for item in result_inputs
+                ],
                 "Nom de l'onglet": [item.split_name for item in result_inputs],
                 "Benchmark détecté": [" · ".join(item.comparison_codes) or "—" for item in result_inputs],
                 "Bases": [" · ".join("?" if n is None else str(n) for n in item.counts) for item in result_inputs],
@@ -126,6 +132,13 @@ def render_smart_mode():
     settings = state["settings"]
 
     result_inputs = [item for item in info.inputs if item.role == "Résultats"] or list(info.inputs)
+    if "Source" not in state["splits"].columns:
+        state["splits"]["Source"] = [
+            f"{item.filename} / {item.source_sheet}"
+            if item.embedded_split_count > 1 and item.source_sheet
+            else item.filename
+            for item in result_inputs
+        ]
     suggested_test_type = "Paired" if info.suggested_test_type.startswith("Paired") else "Monadic"
     saved_test_type = settings.get("test_type", suggested_test_type)
     gate_prefix = f"journey_{key}"
@@ -201,10 +214,14 @@ def render_smart_mode():
     st.markdown("**Splits shown in Excel**")
     split_table = st.data_editor(
         state["splits"], hide_index=True, width="stretch",
-        disabled=["Fichier", "Benchmark détecté", "Bases", "Split detection"],
-        column_order=["Nom de l'onglet", "Benchmark détecté", "Bases"],
+        disabled=["Fichier", "Source", "Benchmark détecté", "Bases", "Split detection"],
+        column_order=["Nom de l'onglet", "Source", "Benchmark détecté", "Bases"],
         column_config={
             "Nom de l'onglet": st.column_config.TextColumn("Split name shown in Excel", required=True, width="large"),
+            "Source": st.column_config.TextColumn(
+                "G-Sight source", width="large",
+                help="The uploaded file, followed by the worksheet when several result sheets are inside one workbook.",
+            ),
             "Benchmark détecté": st.column_config.TextColumn("Benchmark found", width="large"),
             "Bases": st.column_config.TextColumn("Base", width="medium"),
             "Fichier": None,

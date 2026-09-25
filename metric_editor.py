@@ -8,14 +8,18 @@ from templyfier.smart import _metric_key
 from templyfier.english_catalog import TEXT
 
 
-def render_type_metric_editor(rows, key, revision):
+def render_type_metric_editor(rows, key, revision, commit=None):
     """Offer one visible recipe per question type before question-level exceptions."""
     kept = [row for row in rows if row.get('Keep')]
     present_types = list(dict.fromkeys(row['Type'] for row in kept))
     if not present_types:
         return
-    st.markdown('### Metric selection')
-    st.caption('Choose the result rows shown in Excel for each question type. Templyfier has already selected safe defaults; change a recipe only when the project needs something different.')
+    st.markdown('### Default results by question type')
+    st.caption(
+        'Start with the main rule: choose what Standard, Strength, CATA, Listing, '
+        'Preference and Project-specific questions should show in Excel. You can '
+        'still make an exception for any question in the table below.'
+    )
     selected_type = st.segmented_control(
         'Question type recipe', present_types,
         format_func=lambda value: TEXT.get(value, value),
@@ -42,10 +46,18 @@ def render_type_metric_editor(rows, key, revision):
                 rows, source['Question ID'], selected, source.get('Metric labels', {}),
                 'Toutes les questions de ce type',
             )
-            st.session_state[f'metric_batch_{key}'] = {
-                'revision': revision, 'rows': changed, 'preview': preview,
-            }
-            st.session_state[f'editor_refresh_{key}'] = True
+            if commit is not None:
+                skipped = sum(item['R�sultat'].startswith('Inchang�e') for item in preview)
+                commit(
+                    changed,
+                    f'Metric recipe applied to {type_display}; '
+                    f'{skipped} question(s) left unchanged because no safe match was available.',
+                )
+            else:
+                st.session_state[f'metric_batch_{key}'] = {
+                    'revision': revision, 'rows': changed, 'preview': preview,
+                }
+                st.session_state[f'editor_refresh_{key}'] = True
         except ValueError as exc:
             st.error(str(exc))
 

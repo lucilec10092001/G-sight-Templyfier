@@ -11,8 +11,11 @@ from templyfier.grouping import remember_edit, undo_edit, redo_edit
 from templyfier.review import editor_view_key, audit_questions
 from metric_editor import render_metric_editor, render_type_metric_editor
 from memory_ui import render_memory_assistant
-from templyfier.editor_model import QUESTION_TYPES, change_type, export_rows, prepare_rows, reorder_rows
-from templyfier.smart import proposal_to_row
+from templyfier.editor_model import (
+    QUESTION_TYPES, change_type, export_rows, matching_selection, prepare_rows,
+    reorder_rows, set_metric_selection,
+)
+from templyfier.smart import _metric_key, proposal_to_row
 
 
 def _clean(value):
@@ -21,6 +24,26 @@ def _clean(value):
 
 def _group_id(section, label):
     return hashlib.sha1(f"{section}\0{label.casefold()}".encode("utf-8")).hexdigest()[:12]
+
+
+def _metric_text(metrics):
+    return "; ".join(str(metric) for metric in metrics)
+
+
+def _parse_metric_text(value):
+    return [_clean(item) for item in re.split(r"[;\n·|]+", str(value or "")) if _clean(item)]
+
+
+def _exact_metric_selection(value, available):
+    requested = _parse_metric_text(value)
+    by_key = {_metric_key(metric): metric for metric in available}
+    missing = [metric for metric in requested if _metric_key(metric) not in by_key]
+    if missing:
+        raise ValueError(
+            "Unknown metric(s): " + ", ".join(missing)
+            + ". Use the exact G-Sight metric names, separated with semicolons."
+        )
+    return [by_key[_metric_key(metric)] for metric in requested]
 
 
 def render_question_editor(frame, proposals, key, memory=None, protected_ids=(), project_key=None,
@@ -87,6 +110,8 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
     if model.get("notice"):
         st.toast(model["notice"], icon=":material/check_circle:")
 
+    render_type_metric_editor(model["rows"], key, model["revision"], commit)
+
     st.markdown("### Review questions")
     st.caption(
         "Everything that affects the Excel output is in this table. Filtering only changes the view; "
@@ -140,7 +165,7 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
             "KPI Summary": bool(row.get("KPI Summary")),
             "KPI short label": row.get("Summary label", ""),
             "Question type": row["Type"],
-            "Metrics shown in Excel": " · ".join(row.get("Selected metrics", [])),
+            "Metrics shown in Excel": _metric_text(row.get("Selected metrics", [])),
             "Status": "Please check" if question_id in attention_ids else "Ready",
         })
 
@@ -153,7 +178,7 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
         edited = st.data_editor(
             pd.DataFrame(visible), hide_index=True, width="stretch", height=560,
             key=f"questions_table_{key}_{revision}_{view_key}",
-            disabled=["G-Sight question", "Metrics shown in Excel", "Status"],
+            disabled=["G-Sight question", "Status"],
             column_order=["Select", "Keep", "G-Sight question", "Variable / item", "Group", "Section",
                           "Stage", "Included splits", "KPI Summary", "KPI short label", "Question type",
                           "Metrics shown in Excel", "Status"],
@@ -172,20 +197,30 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
                 "KPI Summary": st.column_config.CheckboxColumn(width="small"),
                 "KPI short label": st.column_config.TextColumn(width="medium"),
                 "Question type": st.column_config.SelectboxColumn(options=list(QUESTION_TYPES), required=True, width="medium"),
-                "Metrics shown in Excel": st.column_config.TextColumn(width="large"),
+                "Metrics shown in Excel": st.column_config.TextColumn(
+                    width="large",
+                    help="Edit one question directly. Use exact G-Sight metric names separated with semicolons.",
+                ),
                 "Status": st.column_config.TextColumn(width="small"),
             },
         )
-        st.caption("Optional bulk action — tick Select on adjacent or non-adjacent rows, then choose one action.")
+        st.caption(
+            "Tick Select on any adjacent or non-adjacent rows when the same change should apply to all of them. "
+            "For example: rename Color, assign a stage or split, or apply one metric selection."
+        )
         bulk_cols = st.columns([1.4, 2.2])
         bulk_action = bulk_cols[0].selectbox(
             "Apply to selected rows",
-            ["No bulk action", "Keep", "Exclude", "Set group", "Set section", "Set stage",
+            ["No bulk action", "Keep", "Exclude", "Set variable / item name", "Set group",
+             "Set section", "Set stage", "Set included splits", "Set metrics",
              "Add to KPI Summary", "Remove from KPI Summary"],
         )
         bulk_value = bulk_cols[1].text_input(
-            "New value", placeholder="Required for group, section or stage",
-            disabled=bulk_action not in {"Set group", "Set section", "Set stage"},
+            "New value", placeholder="For metrics, separate exact G-Sight names with semicolons",
+            disabled=bulk_action not in {
+                "Set variable / item name", "Set group", "Set section", "Set stage",
+                "Set included splits", "Set metrics",
+            },
         )
         submitted = st.form_submit_button("Save table changes", type="primary", icon=":material/save:")
 
@@ -196,7 +231,16 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
         try:
             for edit in edited.to_dict("records"):
                 row = by_id[edit["G-Sight question"]]
+                prior_type = row["Type"]
+                prior_metrics = list(row["Selected metrics"])
                 change_type(row, edit["Question type"])
+                edited_metrics = _exact_metric_selection(
+                    edit["Metrics shown in Excel"], row["Available metric list"]
+                )
+                if edit["Question type"] == prior_type or {
+                    _metric_key(metric) for metric in edited_metrics
+                } != {_metric_key(metric) for metric in prior_metrics}:
+                    set_metric_selection(row, edited_metrics)
                 variable = _clean(edit["Variable / item"])
                 if not variable:
                     raise ValueError("A variable or item name is empty.")
@@ -220,7 +264,10 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
 
             if bulk_action != "No bulk action" and not selected_ids:
                 raise ValueError("Select at least one row before applying a bulk action.")
-            if bulk_action in {"Set group", "Set section", "Set stage"} and not _clean(bulk_value):
+            if bulk_action in {
+                "Set variable / item name", "Set group", "Set section", "Set stage",
+                "Set included splits", "Set metrics",
+            } and not _clean(bulk_value):
                 raise ValueError("Enter the new value for the selected rows.")
             for question_id in selected_ids:
                 row = by_id[question_id]
@@ -228,6 +275,11 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
                     row["Keep"] = True
                 elif bulk_action == "Exclude":
                     row["Keep"] = False
+                elif bulk_action == "Set variable / item name":
+                    if row.get("Group ID"):
+                        row["Metric label"] = _clean(bulk_value)
+                    else:
+                        row["Display label"] = _clean(bulk_value)
                 elif bulk_action == "Set group":
                     label = _clean(bulk_value)
                     variable = row.get("Metric label") or row["Display label"]
@@ -236,8 +288,21 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
                     row["Metric label"] = variable
                 elif bulk_action == "Set section":
                     row["Section"] = _clean(bulk_value)
+                    if row.get("Group ID"):
+                        row["Group ID"] = _group_id(row["Section"], row["Display label"])
                 elif bulk_action == "Set stage":
                     row["Stage"] = _clean(bulk_value)
+                elif bulk_action == "Set included splits":
+                    row["Included splits"] = _clean(bulk_value)
+                elif bulk_action == "Set metrics":
+                    requested = _parse_metric_text(bulk_value)
+                    matched = matching_selection(requested, row["Available metric list"])
+                    if len(matched) != len(requested):
+                        raise ValueError(
+                            f"{row['Question ID']}: the requested metrics do not all have a safe match. "
+                            "Use question-type recipes or edit this question separately."
+                        )
+                    set_metric_selection(row, matched)
                 elif bulk_action == "Add to KPI Summary":
                     row["KPI Summary"] = True
                 elif bulk_action == "Remove from KPI Summary":
@@ -261,7 +326,6 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
     with st.expander("Advanced metric settings", expanded=bool(st.session_state.get(f"metric_batch_{key}")),
                      icon=":material/tune:"):
         st.caption("Use these controls only when a question type or one question needs different result rows.")
-        render_type_metric_editor(model["rows"], key, model["revision"])
         render_metric_editor(model["rows"], key, model["revision"], commit)
 
     empty = [row for row in model["rows"] if row["Keep"] and not row["Selected metrics"]]

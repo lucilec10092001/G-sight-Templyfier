@@ -1,4 +1,4 @@
-# G-Sight Templyfier v55
+# G-Sight Templyfier v56
 
 Templyfier turns G-Sight DataViz outputs into editable Excel toplines for consumer research studies. The interface is in English and the question detection supports English and French source wording. No consumer files or credentials are included in this repository.
 
@@ -6,8 +6,8 @@ Templyfier turns G-Sight DataViz outputs into editable Excel toplines for consum
 
 1. Select every G-Sight output for the study and the matching CMR export. The CMR is required. A study may use one G-Sight workbook containing all splits or one workbook per split.
 2. Confirm the study format and the few choices that change the workbook: Screeners, KPI Summary, benchmark reading, Mean decimals, and gap/delta columns.
-3. Check the proposed split names. Templyfier uses `TOTAL` when no split is specified and reads native G-Sight filters such as `Search: S-15-Fabcon brand MO: Lenor` as `LENOR`.
-4. Review every question in one table, then generate the workbook. The existing safety checks still block incomplete or inconsistent configurations.
+3. Check the proposed split names and their G-Sight source file or worksheet. Templyfier uses `TOTAL` when no split is specified and reads native G-Sight filters such as `Search: S-15-Fabcon brand MO: Lenor` as `LENOR`.
+4. Choose the default result rows by question type, review every question in one table, then generate the workbook. The existing safety checks still block incomplete or inconsistent configurations.
 
 The sidebar only shows the four landmarks. Technical details and rare options no longer interrupt the main journey.
 
@@ -24,11 +24,11 @@ The main table contains the decisions that affect Excel:
 - question type and the metrics shown in Excel;
 - a visible `Please check` status when recognition needs a CMI decision.
 
-Search and filters change only the view; hidden questions remain in the output. Tick `Select` on adjacent or non-adjacent rows to apply one action to several questions: keep, exclude, set group, section or stage, and add or remove KPI Summary.
+Search and filters change only the view; hidden questions remain in the output. Tick `Select` on adjacent or non-adjacent rows to apply one action to several questions: keep, exclude, rename variables/items or groups, set section, stage, included splits or metrics, and add or remove KPI Summary.
 
 Question ordering sits directly below the table. Multiple questions or groups can be selected and dragged. Moves remain in the browser until `Save order`, avoiding a Streamlit rerun after every movement. Sections and groups follow this saved question order in Excel.
 
-Metric recipes and question-specific exceptions remain available under `Advanced metric settings`. Standard, Strength, CATA, Bipolar, Listing, Preference and Project-specific questions keep their existing safe defaults and all source-supported alternatives.
+Metric recipes for Standard, Strength, CATA, Bipolar, Listing, Preference and Project-specific questions are always visible before the table. The table supports direct per-question metric editing and safe bulk changes; the detailed question-specific assistant remains under `Advanced metric settings`.
 
 ## Benchmark and split handling
 
@@ -55,4 +55,4 @@ For an internal server deployment, follow `SERVER_DEPLOYMENT.md`. The current pu
 
 ## Validation
 
-The calculation engine and Excel writer were preserved. Version 55 adds the interface restructuring and the native split-value regression. See `CHANGES_v55.md` and `VALIDATION_v55.md`.
+The calculation engine and Excel writer were preserved. Version 56 removes the deferred legacy-template interface, adds source traceability, and makes metric and multi-row editing part of the main review. See `CHANGES_v56.md` and `VALIDATION_v56.md`.
