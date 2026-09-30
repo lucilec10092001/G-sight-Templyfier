@@ -8,6 +8,8 @@ from pathlib import Path
 import re
 import unicodedata
 from typing import BinaryIO, Sequence
+from xml.etree import ElementTree
+from zipfile import BadZipFile, ZipFile
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -38,6 +40,27 @@ STANDARD_METRICS = (
     "Bottom 2 Boxes",
     "Bottom 3 Boxes",
 )
+
+
+def _validate_generated_xlsx(payload: bytes) -> None:
+    """Refuse a download if its ZIP/XML package cannot be reopened cleanly."""
+    try:
+        with ZipFile(BytesIO(payload)) as archive:
+            damaged = archive.testzip()
+            if damaged:
+                raise ValueError(f"damaged package member: {damaged}")
+            for name in archive.namelist():
+                if name.endswith((".xml", ".rels")):
+                    ElementTree.fromstring(archive.read(name))
+        workbook = load_workbook(BytesIO(payload), read_only=True, data_only=False)
+        if not workbook.sheetnames:
+            raise ValueError("workbook contains no worksheets")
+        workbook.close()
+    except (BadZipFile, OSError, ValueError, ElementTree.ParseError) as exc:
+        raise TemplyfierError(
+            "The generated Excel package failed its integrity check and was not offered for download. "
+            "Please keep the source files and report this project to the Templyfier owner."
+        ) from exc
 
 
 @dataclass(frozen=True)
@@ -2003,6 +2026,15 @@ def _selected_question_rows(question_rows: Sequence[dict]) -> list[dict]:
     return selected
 
 
+def _questions_in_section_blocks(question_rows: Sequence[dict]) -> list[dict]:
+    """Keep section order and question order while making each section contiguous."""
+    sections: dict[str, list[dict]] = {}
+    for row in question_rows:
+        section = _text(row.get("Section")) or "TOPLINES"
+        sections.setdefault(section, []).append(row)
+    return [row for members in sections.values() for row in members]
+
+
 def _question_applies_to_split(config: dict, split_name: str) -> bool:
     raw = _text(config.get("Included splits"))
     if not raw or _normal(raw) in {"all", "all splits", "tous", "tous les splits", "*"}:
@@ -2127,6 +2159,9 @@ def _build_paired_toplines(
         for (filename, source_key, _, _), count in zip(virtual_sources, product_counts)
     ]
     selected_questions = _selected_question_rows(question_rows)
+    output_questions = (
+        _questions_in_section_blocks(selected_questions) if include_sections else selected_questions
+    )
     output = Workbook()
     output.remove(output.active)
     used_names: set[str] = set()
@@ -2177,7 +2212,7 @@ def _build_paired_toplines(
         current_section = None
         previous_variable_label = None
         summary_question_rows: dict[str, list[tuple[int, str]]] = {}
-        for config in selected_questions:
+        for config in output_questions:
             if not _question_applies_to_split(config, split_names[file_index]):
                 continue
             expected_in_source = _question_expected_in_source(
@@ -2321,6 +2356,7 @@ def _build_paired_toplines(
     from .english_output import finalize
     finalize(output, include_deltas)
     output.save(buffer)
+    _validate_generated_xlsx(buffer.getvalue())
     scanned = sum(_source_metric_row_count(sheet, layout) for sheet, layout in zip(data_sheets, layouts))
     return buffer.getvalue(), {
         "mode": "Nouveau projet intelligent",
@@ -3089,6 +3125,9 @@ def build_smart_toplines(
         raise TemplyfierError("Ordre des onglets inconnu.")
 
     selected_questions = _selected_question_rows(question_rows)
+    output_questions = (
+        _questions_in_section_blocks(selected_questions) if include_sections else selected_questions
+    )
 
     output = Workbook()
     output.remove(output.active)
@@ -3227,7 +3266,7 @@ def build_smart_toplines(
             current_section = None
             previous_variable_label = None
             summary_question_rows: dict[str, list[tuple[int, str]]] = {}
-            for config in selected_questions:
+            for config in output_questions:
                 if not _question_applies_to_split(config, split_display_name):
                     continue
                 expected_in_source = _question_expected_in_source(
@@ -3387,6 +3426,7 @@ def build_smart_toplines(
     from .english_output import finalize
     finalize(output, show_monadic_gaps)
     output.save(buffer)
+    _validate_generated_xlsx(buffer.getvalue())
     scanned = sum(_source_metric_row_count(sheet, layout) for sheet, layout in zip(data_sheets, layouts))
     return buffer.getvalue(), {
         "mode": "Nouveau projet intelligent",

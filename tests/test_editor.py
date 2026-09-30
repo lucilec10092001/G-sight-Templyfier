@@ -9,7 +9,7 @@ from openpyxl.styles import PatternFill
 from templyfier.core import detect_layout
 from templyfier.editor_model import (change_type, export_rows, group_rows, matching_selection,
                                      prepare_rows, rename_group, reorder_rows, set_metric_selection)
-from templyfier.smart import (STANDARD_METRICS, _classify, _metric_key, apply_profile,
+from templyfier.smart import (STANDARD_METRICS, _classify, _metric_key, _validate_generated_xlsx, apply_profile,
     build_smart_toplines, configured_source_rows, default_metric_selection,
     inspect_smart_package, profile_to_json, profile_from_json, proposal_to_row)
 
@@ -92,6 +92,30 @@ class EditorTests(unittest.TestCase):
             self.assertTrue(formulas)
             self.assertTrue(all(formula.startswith('=IF(COUNT(') for formula in formulas))
             self.assertTrue(all('<2,"",' in formula for formula in formulas))
+
+    def test_repeated_sections_are_written_as_single_contiguous_blocks(self):
+        rows = export_rows(self.rows[:3])
+        rows[0]['Section'] = 'FRAGRANCE BENEFITS'
+        rows[1]['Section'] = 'PRODUCT BENEFITS'
+        rows[2]['Section'] = 'FRAGRANCE BENEFITS'
+        data, _ = build_smart_toplines(
+            [('test.xlsx', self.raw)], rows,
+            split_names=['TOTAL'], benchmark_positions=[0], standard_metrics=AGG,
+            include_screeners=False, include_sections=True,
+        )
+        sheet = load_workbook(BytesIO(data), data_only=False).active
+        section_headers = [sheet.cell(row, 1).value for row in range(6, sheet.max_row + 1)
+                           if sheet.cell(row, 1).value in {'FRAGRANCE BENEFITS', 'PRODUCT BENEFITS'}]
+        self.assertEqual(section_headers, ['FRAGRANCE BENEFITS', 'PRODUCT BENEFITS'])
+
+    def test_generated_excel_package_passes_integrity_check(self):
+        rows = export_rows([self.rows[0]])
+        data, _ = build_smart_toplines(
+            [('test.xlsx', self.raw)], rows,
+            split_names=['TOTAL'], benchmark_positions=[0], standard_metrics=AGG,
+            include_screeners=False, include_sections=True,
+        )
+        _validate_generated_xlsx(data)
 
     def test_standard_default_and_t3b_only(self):
         row=deepcopy(self.rows[0]);row['Available metric list']=QUESTIONS['Q-1-Overall liking']

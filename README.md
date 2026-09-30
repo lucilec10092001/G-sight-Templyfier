@@ -1,4 +1,4 @@
-# G-Sight Templyfier v66
+# G-Sight Templyfier v67
 
 Templyfier turns G-Sight DataViz outputs into editable Excel toplines for consumer research studies. The interface is in English and the question detection supports English and French source wording. No consumer files or credentials are included in this repository.
 
@@ -63,4 +63,4 @@ For an internal server deployment, follow `SERVER_DEPLOYMENT.md`. The current pu
 
 ## Validation
 
-Version 66 prevents missing source scores from appearing as false zero gaps or deltas in Excel. See `CHANGES_v66.md` and `VALIDATION_v66.md`.
+Version 67 writes each section as one clear block and validates the generated XLSX package before download. See `CHANGES_v67.md` and `VALIDATION_v67.md`.
