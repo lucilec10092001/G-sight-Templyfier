@@ -160,6 +160,43 @@ class MultiStageTests(unittest.TestCase):
                 standard_metrics=("Mean", "Top Box", "Top 2 Boxes", "Bottom 2 Boxes"),
             )
 
+    def test_manual_stage_name_never_hides_existing_source_question(self):
+        source = _multistage_export()
+        files = [("DataViz_CLT_NEAT_WET.xlsx", source)]
+        info = inspect_smart_package(files)
+        rows = [proposal_to_row(question) for question in info.questions]
+        wet_row = next(row for row in rows if row["Stage"] == "WET")
+        wet_row["Stage"] = "CUSTOM TOUCHPOINT"
+
+        output, _ = build_smart_toplines(
+            files,
+            rows,
+            split_names=["TOTAL"],
+            benchmark_positions=(0,),
+            standard_metrics=("Mean", "Top Box", "Top 2 Boxes", "Bottom 2 Boxes"),
+        )
+        workbook = load_workbook(BytesIO(output), data_only=False)
+        wet = next(workbook[name] for name in workbook.sheetnames if name.startswith("WET"))
+        values = {cell.value for row in wet.iter_rows() for cell in row if cell.value}
+        self.assertTrue(any(str(value).endswith("Overall fragrance liking") for value in values))
+
+    def test_wet_and_damp_wet_are_safe_stage_aliases(self):
+        source = _multistage_export()
+        files = [("DataViz_CLT_NEAT_WET.xlsx", source)]
+        info = inspect_smart_package(files)
+        rows = [proposal_to_row(question) for question in info.questions]
+        wet_row = next(row for row in rows if row["Stage"] == "WET")
+        wet_row["Stage"] = "DAMP WET"
+        output, report = build_smart_toplines(
+            files,
+            rows,
+            split_names=["TOTAL"],
+            benchmark_positions=(0,),
+            standard_metrics=("Mean", "Top Box", "Top 2 Boxes", "Bottom 2 Boxes"),
+        )
+        self.assertTrue(output)
+        self.assertEqual(report["data_rows_written"], 8)
+
 
 if __name__ == "__main__":
     unittest.main()

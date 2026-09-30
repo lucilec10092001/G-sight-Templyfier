@@ -2020,7 +2020,12 @@ def _question_expected_in_source(config: dict, split_name: str, source_sheet) ->
     source_stage = _normal(_stage_name(source_sheet))
     if not requested_stages or source_stage in {"", "none", "not specified", "non precise"}:
         return True
-    return source_stage in requested_stages
+    stage_aliases = {
+        "wet": {"wet", "damp wet"},
+        "damp wet": {"wet", "damp wet"},
+    }
+    source_family = stage_aliases.get(source_stage, {source_stage})
+    return any(source_family & stage_aliases.get(stage, {stage}) for stage in requested_stages)
 
 
 def _raise_for_question_omissions(omissions: Sequence[dict]) -> None:
@@ -2165,19 +2170,23 @@ def _build_paired_toplines(
         previous_variable_label = None
         summary_question_rows: dict[str, list[tuple[int, str]]] = {}
         for config in selected_questions:
-            if not _question_expected_in_source(config, split_names[file_index], source_sheet):
+            if not _question_applies_to_split(config, split_names[file_index]):
                 continue
+            expected_in_source = _question_expected_in_source(
+                config, split_names[file_index], source_sheet
+            )
             question_id = _text(config.get("Question ID"))
             question_type = _text(config.get("Type"))
             question_metrics = _standard_metrics_for_question(config, standard_metrics)
             source_rows = configured_source_rows(source_sheet, layout, config, standard_metrics)
             if not source_rows:
                 skipped_questions += 1
-                question_omissions.append({
-                    "question_id": question_id,
-                    "label": _text(config.get("Display label")) or question_id,
-                    "sheet": sheet_name,
-                })
+                if expected_in_source:
+                    question_omissions.append({
+                        "question_id": question_id,
+                        "label": _text(config.get("Display label")) or question_id,
+                        "sheet": sheet_name,
+                    })
                 continue
             missing_metrics = _missing_selected_metrics(config, source_sheet, layout, source_rows)
             if missing_metrics:
@@ -3209,8 +3218,11 @@ def build_smart_toplines(
             previous_variable_label = None
             summary_question_rows: dict[str, list[tuple[int, str]]] = {}
             for config in selected_questions:
-                if not _question_expected_in_source(config, split_display_name, source_sheet):
+                if not _question_applies_to_split(config, split_display_name):
                     continue
+                expected_in_source = _question_expected_in_source(
+                    config, split_display_name, source_sheet
+                )
                 section = _text(config.get("Section")) or "TOPLINES"
                 if include_sections and section != current_section:
                     target.cell(output_row, 1).value = section
@@ -3230,11 +3242,12 @@ def build_smart_toplines(
                 source_rows = configured_source_rows(source_sheet, layout, config, standard_metrics)
                 if not source_rows:
                     skipped_stage_questions += 1
-                    question_omissions.append({
-                        "question_id": question_id,
-                        "label": _text(config.get("Display label")) or question_id,
-                        "sheet": target.title,
-                    })
+                    if expected_in_source:
+                        question_omissions.append({
+                            "question_id": question_id,
+                            "label": _text(config.get("Display label")) or question_id,
+                            "sheet": target.title,
+                        })
                     continue
                 # Side-by-side benchmark panels intentionally align a metric
                 # that exists in one reading as a documented blank in another.
