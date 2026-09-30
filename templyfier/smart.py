@@ -1162,7 +1162,13 @@ def _suggest_question_splits(
     label: str,
     split_names: Sequence[str],
 ) -> tuple[str, ...]:
-    """Suggest a split restriction only when the wording names it clearly."""
+    """Suggest a restriction only when the wording explicitly targets a split.
+
+    A plain word overlap is unsafe: a study may contain a ``YELLOW`` split and
+    a business KPI called ``Yellow fit`` that applies to the full sample.  The
+    split name therefore needs a nearby audience/comparison cue such as
+    ``with``, ``among``, ``users of`` or ``only`` before we pre-fill a filter.
+    """
     combined = _normal(f"{question_id} {label}")
     matches: list[tuple[int, str]] = []
     for split_name in split_names:
@@ -1171,7 +1177,23 @@ def _suggest_question_splits(
             continue
         meaningful = re.sub(r"\b(?:mo|yo|years?|old)\b", " ", split_key)
         meaningful = re.sub(r"\s+", " ", meaningful).strip()
-        if len(meaningful) >= 5 and meaningful in combined:
+        if len(meaningful) < 5:
+            continue
+        split_pattern = re.escape(meaningful).replace(r"\ ", r"\s+")
+        before = (
+            r"(?:among|for|within|with|versus|vs|by|chez|parmi|pour|avec|contre|"
+            r"users?\s+of|owners?\s+of|buyers?\s+of|utilisateurs?\s+de)\s+"
+            r"(?:the\s+|les?\s+)?"
+        )
+        after = (
+            r"\s+(?:users?|owners?|buyers?|respondents?|only|segment|group|sample|"
+            r"utilisateurs?|acheteurs?|repondants?|uniquement|segment|groupe|echantillon)\b"
+        )
+        explicit_reference = bool(
+            re.search(rf"\b{before}{split_pattern}\b", combined)
+            or re.search(rf"\b{split_pattern}{after}", combined)
+        )
+        if explicit_reference:
             matches.append((len(meaningful), split_name))
     if not matches:
         return ()
