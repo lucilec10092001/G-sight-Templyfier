@@ -11,7 +11,7 @@ from .smart import STANDARD_METRICS
 
 DEFAULT={'version':1,'drafts':{}}
 
-SETTING_FIELDS=set('standard_metrics benchmark_count benchmark_source benchmark_sheet_mode benchmark_labels include_screeners study_format clt_block_design clt_stages clt_stage_order test_type mean_decimals paired_swaps include_sections include_deltas output_sheet_order show_monadic_gaps highlight_benchmarks product_labels product_subtitles cmr_name_mode summary_scope summary_metric_strategy include_summary_details'.split())
+SETTING_FIELDS=set('standard_metrics benchmark_count benchmark_source benchmark_sheet_mode benchmark_labels include_screeners study_format clt_block_design clt_stages clt_stage_order test_type mean_decimals paired_swaps paired_mappings include_sections include_deltas output_sheet_order show_monadic_gaps highlight_benchmarks product_labels product_subtitles cmr_name_mode summary_scope summary_metric_strategy include_summary_details'.split())
 ROW_FIELDS={'Keep','Order','Section','Question ID','Display label','Metric label','Type','Confidence','CMI role','CMI note','Available metrics','Availability','Included splits','KPI Summary','Summary label','Sens favorable','Custom metrics','Selected metrics','Metric labels','Selection type','Group ID','Grouping choice','Dismissed groups','Ungrouped labels',*STANDARD_METRICS}
 SETTING_FIELDS.add('benchmark_keys')
 OPTION_VALUES={'benchmark_source':{'auto','manual'},'benchmark_sheet_mode':{'combined','separate','auto_exports','auto_columns','benchmark_columns'},'clt_block_design':{'Complete block','Incomplete block','unknown'},'test_type':{'Monadic','Paired'},'output_sheet_order':{'benchmark_first','split_first'},'summary_scope':{'total','all','none'},'summary_metric_strategy':{'priority','primary','consensus'}}
@@ -40,6 +40,15 @@ def _settings_only(profile):
         if key in OPTION_VALUES and (not isinstance(value,str) or value not in OPTION_VALUES[key]):raise ValueError('Unrecognised project option in draft.')
         if key=='paired_swaps':
             if not isinstance(value,dict) or any(not isinstance(v,list) or any(type(n)!=int or n<1 for n in v) for v in value.values()):raise ValueError('Invalid paired settings.')
+        elif key=='paired_mappings':
+            if (not isinstance(value,dict) or any(
+                not isinstance(pairs,list) or any(
+                    not isinstance(pair,list) or len(pair)!=2
+                    or any(type(position)!=int or position<0 for position in pair)
+                    for pair in pairs
+                )
+                for pairs in value.values()
+            )):raise ValueError('Invalid paired mappings.')
         elif key in {'standard_metrics','benchmark_keys','benchmark_labels','product_labels','product_subtitles','clt_stages','clt_stage_order'}:
             if not isinstance(value,list) or any(not isinstance(v,str) for v in value):raise ValueError('Invalid project label list.')
             if key=='benchmark_keys' and len(value)!=len(set(value)):raise ValueError('Duplicate benchmark codes in draft.')

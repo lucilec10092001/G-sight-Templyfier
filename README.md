@@ -1,4 +1,4 @@
-# G-Sight Templyfier v60
+# G-Sight Templyfier v61
 
 Templyfier turns G-Sight DataViz outputs into editable Excel toplines for consumer research studies. The interface is in English and the question detection supports English and French source wording. No consumer files or credentials are included in this repository.
 
@@ -45,6 +45,8 @@ Any number of detected benchmarks is supported within Excel limits. Each compari
 
 Split names remain editable. Non-empty filters that cannot be parsed are marked for review and never silently become TOTAL. The exact G-Sight value after the filter delimiter is used where available.
 
+For Paired studies, Templyfier first proposes adjacent Benchmark/Candidate pairs automatically. A compact optional mapping opens only when that assumption is unsafe, or when the CMI chooses to adjust it. It supports non-adjacent products, reversed pairs, unused extra products, and one shared benchmark compared with several candidates. Generation remains blocked until every Paired split has a valid mapping; no uncertain pair is silently invented.
+
 ## Stages and multilingual projects
 
 All validated result sheets are analysed, so WET, NEAT, DRY and unfamiliar stages can coexist in one source workbook. No question is discarded because its stage is unknown. `Unassigned` questions stay visible and can be mapped directly in the main table to any free-text stage such as Pre-wash, After application or Skin dry-down.
@@ -59,4 +61,4 @@ For an internal server deployment, follow `SERVER_DEPLOYMENT.md`. The current pu
 
 ## Validation
 
-Version 60 also supports consolidated Paired workbooks where each worksheet is a consumer split and splits contain different valid numbers of pairs. See `CHANGES_v60.md` and `VALIDATION_v60.md`.
+Version 61 adds a guided fallback for non-standard Paired product plans while preserving the automatic path for standard exports. See `CHANGES_v61.md` and `VALIDATION_v61.md`.

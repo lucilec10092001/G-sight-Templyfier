@@ -92,6 +92,52 @@ class SmartInputInfo:
     product_keys: tuple[str, ...] = ()
 
 
+def _paired_positions(
+    product_count: int,
+    source_key: str,
+    filename: str,
+    *,
+    paired_mappings: dict[str, Sequence[Sequence[int]]] | None,
+    paired_swaps: dict[str, Sequence[int]] | None,
+) -> list[tuple[int, int]]:
+    """Return validated zero-based Benchmark/Candidate positions for one source."""
+    mappings = paired_mappings or {}
+    raw_mapping = mappings.get(source_key)
+    if raw_mapping is None and filename in mappings:
+        raw_mapping = mappings[filename]
+    if raw_mapping is None:
+        if product_count < 2 or product_count % 2:
+            raise TemplyfierError(
+                "The automatic Paired plan needs an even number of active products. "
+                "Open the optional pair mapping to define the products to compare or exclude."
+            )
+        pairs = [(position, position + 1) for position in range(0, product_count, 2)]
+    else:
+        pairs = []
+        for pair_number, value in enumerate(raw_mapping, 1):
+            if not isinstance(value, (list, tuple)) or len(value) != 2:
+                raise TemplyfierError(f"Pair {pair_number} has an invalid mapping.")
+            benchmark, candidate = value
+            if type(benchmark) is not int or type(candidate) is not int:
+                raise TemplyfierError(f"Pair {pair_number} must use product positions.")
+            if not (0 <= benchmark < product_count and 0 <= candidate < product_count):
+                raise TemplyfierError(f"Pair {pair_number} refers to a product that is not active.")
+            if benchmark == candidate:
+                raise TemplyfierError(f"Pair {pair_number} uses the same product twice.")
+            pairs.append((benchmark, candidate))
+        if not pairs:
+            raise TemplyfierError("Keep at least one Benchmark/Candidate pair for this split.")
+    swaps = {
+        int(value) for value in (paired_swaps or {}).get(
+            source_key, (paired_swaps or {}).get(filename, ())
+        )
+    }
+    return [
+        (candidate, benchmark) if pair_number in swaps else (benchmark, candidate)
+        for pair_number, (benchmark, candidate) in enumerate(pairs, 1)
+    ]
+
+
 def audit_input_plan(
     info: SmartPackageInfo,
     split_names: Sequence[str],
@@ -99,6 +145,7 @@ def audit_input_plan(
     *,
     test_type: str,
     automatic_exports: bool,
+    paired_mappings: dict[str, Sequence[Sequence[int]]] | None = None,
 ) -> dict:
     """Reconcile files, splits, benchmarks and product plans before export."""
     inputs = [item for item in info.inputs if item.role == "Résultats"] or list(info.inputs)
@@ -124,12 +171,20 @@ def audit_input_plan(
 
     if paired:
         for item, split in zip(inputs, names):
-            valid = len(item.product_keys) >= 2 and len(item.product_keys) % 2 == 0
-            if not valid:
-                blockers.append(f"{split} ne contient pas un nombre pair de produits actifs.")
+            source_key = f"{item.filename}::{item.source_sheet}"
+            try:
+                pairs = _paired_positions(
+                    len(item.product_keys), source_key, item.filename,
+                    paired_mappings=paired_mappings, paired_swaps=None,
+                )
+                valid = True
+            except TemplyfierError as exc:
+                pairs = []
+                valid = False
+                blockers.append(f"{split}: {exc}")
             rows.append({
                 "Split": split,
-                "Benchmark": "Paires internes",
+                "Benchmark": f"{len(pairs)} internal pair(s)" if valid else "Pair mapping required",
                 "Export": item.filename,
                 "Produits": len(item.product_keys),
                 "Contrôle": "Prêt" if valid else "À corriger",
@@ -625,6 +680,11 @@ def _comparison_codes(sheet, layout) -> tuple[str, ...]:
 
 
 def _suggest_test_type(inputs: Sequence["SmartInputInfo"]) -> str:
+    if any(
+        "paired" in _normal(item.filename) or "paired" in _normal(item.stage)
+        for item in inputs
+    ):
+        return "Paired (à confirmer)"
     if any(item.comparison_codes for item in inputs):
         return "Monadic"
     product_counts = {len(item.product_keys) for item in inputs if item.product_keys}
@@ -637,6 +697,8 @@ def _embedded_sheets_are_consumer_splits(filename: str, sheets: Sequence) -> boo
     """Recognise one-workbook Paired exports where each result sheet is a split."""
     if len(sheets) < 2:
         return False
+    if re.search(r"\ball\s+splits?\b|\btous?\s+les\s+splits?\b", _normal(filename)):
+        return True
     meaningful_stages = {
         _normal(_stage_name(sheet))
         for sheet in sheets
@@ -644,8 +706,6 @@ def _embedded_sheets_are_consumer_splits(filename: str, sheets: Sequence) -> boo
     }
     if meaningful_stages:
         return False
-    if re.search(r"\ball\s+splits?\b|\btous?\s+les\s+splits?\b", _normal(filename)):
-        return True
     generic = re.compile(r"^(?:table|sheet|feuil|data|results?|resultats?)[\s_-]*\d*$", re.I)
     titles = [_text(sheet.title) for sheet in sheets]
     return len(set(map(_normal, titles))) == len(titles) and all(
@@ -1444,8 +1504,13 @@ def inspect_smart_package(raw_files: Sequence[tuple[str, object]]) -> SmartPacka
             )
     if (
         study_format not in {"HUT / in-use", "CLT"}
-        and len(inputs) > 1
-        and all(len(item.product_keys) >= 2 and len(item.product_keys) % 2 == 0 for item in inputs)
+        and (
+            any("paired" in _normal(item.filename) or "paired" in _normal(item.stage) for item in inputs)
+            or (
+                len(inputs) > 1
+                and all(len(item.product_keys) >= 2 and len(item.product_keys) % 2 == 0 for item in inputs)
+            )
+        )
     ):
         study_format = "HUT / in-use"
     unique_stages = tuple(dict.fromkeys(all_stages))
@@ -1936,6 +2001,7 @@ def _build_paired_toplines(
     include_screeners: bool,
     mean_decimals: int,
     paired_swaps: dict[str, Sequence[int]] | None,
+    paired_mappings: dict[str, Sequence[Sequence[int]]] | None,
     include_deltas: bool,
     include_sections: bool,
     summary_scope: str,
@@ -1965,10 +2031,13 @@ def _build_paired_toplines(
         raise TemplyfierError("Le nombre de noms de splits est incorrect.")
     product_keys = [_product_keys(sheet, layout) for sheet, layout in zip(data_sheets, layouts)]
     product_counts = [len(keys) for keys in product_keys]
-    if any(count < 2 or count % 2 for count in product_counts):
-        raise TemplyfierError(
-            "Un test Paired doit contenir un nombre pair de produits, ordonnés Benchmark puis Candidat pour chaque paire."
+    pair_plans = [
+        _paired_positions(
+            count, source_key, filename,
+            paired_mappings=paired_mappings, paired_swaps=paired_swaps,
         )
+        for (filename, source_key, _, _), count in zip(virtual_sources, product_counts)
+    ]
     selected_questions = _selected_question_rows(question_rows)
     output = Workbook()
     output.remove(output.active)
@@ -1984,16 +2053,10 @@ def _build_paired_toplines(
     ):
         sheet_name = _safe_sheet_name(split_names[file_index], used_names)
         target = output.create_sheet(sheet_name)
-        pairs = [(pos, pos + 1) for pos in range(0, len(layout.product_cols), 2)]
-        saved_swaps = (paired_swaps or {}).get(
-            source_key, (paired_swaps or {}).get(filename, ())
-        )
-        swaps = {int(value) for value in saved_swaps}
+        pairs = pair_plans[file_index]
         blocks = []
         current_col = 3
         for pair_number, (benchmark_pos, candidate_pos) in enumerate(pairs, 1):
-            if pair_number in swaps:
-                benchmark_pos, candidate_pos = candidate_pos, benchmark_pos
             blocks.append({
                 "benchmark_pos": benchmark_pos,
                 "candidate_pos": candidate_pos,
@@ -2161,10 +2224,14 @@ def _build_paired_toplines(
         "technical_columns_ignored": sum(max(0, sheet.max_column - 2 - len(layout.product_cols)) for sheet, layout in zip(data_sheets, layouts)),
         "products": max(product_counts),
         "products_by_split": dict(zip(split_names, product_counts)),
-        "pairs": max(product_counts) // 2,
+        "pairs": max((len(plan) for plan in pair_plans), default=0),
         "pairs_by_split": pairs_by_split,
-        "benchmarks": "premier produit de chaque paire",
+        "benchmarks": "mapped per pair" if paired_mappings else "first product in each adjacent pair",
         "paired_swaps": {name: list(values) for name, values in (paired_swaps or {}).items()},
+        "paired_mappings": {
+            name: [list(pair) for pair in values]
+            for name, values in (paired_mappings or {}).items()
+        },
         "include_deltas": bool(include_deltas),
         "include_sections": bool(include_sections),
         "summary_scope": _normal(summary_scope) or "none",
@@ -2801,6 +2868,7 @@ def build_smart_toplines(
     test_type: str = "Monadic",
     mean_decimals: int = 2,
     paired_swaps: dict[str, Sequence[int]] | None = None,
+    paired_mappings: dict[str, Sequence[Sequence[int]]] | None = None,
     include_deltas: bool = True,
     include_sections: bool = True,
     benchmark_sheet_mode: str = "combined",
@@ -2829,6 +2897,7 @@ def build_smart_toplines(
             include_screeners=include_screeners,
             mean_decimals=mean_decimals,
             paired_swaps=paired_swaps,
+            paired_mappings=paired_mappings,
             include_deltas=include_deltas,
             include_sections=include_sections,
             summary_scope=summary_scope,

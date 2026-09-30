@@ -391,33 +391,54 @@ def render_smart_mode():
         else:
             st.error("Automatic benchmark detection failed. Check that each G-Sight output contains its comparison columns.")
         paired_swaps = {}
+        paired_mappings = {}
     else:
         benchmark_count = 0
         benchmark_source = "manual"
         benchmark_labels = []
         benchmark_short_labels = []
         benchmark_sheet_mode = "combined"
+        paired_items = result_inputs
+        mapping_state_key = f"paired_mappings_{key}"
+        if mapping_state_key not in st.session_state:
+            st.session_state[mapping_state_key] = {
+                str(source): [list(pair) for pair in pairs]
+                for source, pairs in settings.get("paired_mappings", {}).items()
+            }
+        paired_mappings = st.session_state[mapping_state_key]
         pair_rows = []
         saved_swaps = settings.get("paired_swaps", {})
-        for item in info.inputs:
-            if item.role != "Résultats" and any(candidate.role == "Résultats" for candidate in info.inputs):
-                continue
+        for item in paired_items:
             source_key = f"{item.filename}::{item.source_sheet}"
-            for position in range(0, len(item.product_names) - 1, 2):
+            positions = paired_mappings.get(source_key)
+            if positions is None:
+                positions = [
+                    [position, position + 1]
+                    for position in range(0, len(item.product_names) - 1, 2)
+                ]
+            for pair_index, positions_pair in enumerate(positions, 1):
+                if len(positions_pair) != 2:
+                    continue
+                benchmark_position, candidate_position = positions_pair
+                if not (
+                    0 <= benchmark_position < len(item.product_names)
+                    and 0 <= candidate_position < len(item.product_names)
+                ):
+                    continue
                 pair_rows.append({
                     "Source key": source_key,
                     "Fichier": item.filename,
                     "Split": item.split_name,
-                    "Paire": position // 2 + 1,
-                    "Benchmark": item.product_names[position],
-                    "Candidat": item.product_names[position + 1],
-                    "Inverser": position // 2 + 1 in saved_swaps.get(
+                    "Paire": pair_index,
+                    "Benchmark": item.product_names[benchmark_position],
+                    "Candidat": item.product_names[candidate_position],
+                    "Inverser": pair_index in saved_swaps.get(
                         source_key, saved_swaps.get(item.filename, [])
                     ),
                 })
         st.caption(
-            "Plan Paired détecté — chaque paire doit être Benchmark puis Candidat. "
-            "Les splits peuvent avoir un nombre de paires actives différent."
+            "Templyfier proposes Benchmark then Candidate pairs for every split. "
+            "If the proposal is correct, no action is needed."
         )
         pair_table = st.data_editor(
             pd.DataFrame(
@@ -431,8 +452,8 @@ def render_smart_mode():
             column_config={
                 "Fichier": st.column_config.TextColumn(width="large"),
                 "Inverser": st.column_config.CheckboxColumn(
-                    "Inverser Benchmark/Candidat",
-                    help="Inverse le sens de cette paire et recalcule le delta dans le bon sens.",
+                    "Swap Benchmark/Candidate",
+                    help="Use this for a reversed pair. The delta remains Candidate minus Benchmark.",
                 ),
             },
             key=f"smart_pairs_{key}",
@@ -442,6 +463,104 @@ def render_smart_mode():
             for source_key, group in pair_table.groupby("Source key")
         }
 
+        mapping_required = any(
+            len(item.product_names) < 2 or len(item.product_names) % 2
+            for item in paired_items
+            if f"{item.filename}::{item.source_sheet}" not in paired_mappings
+        )
+        with st.expander(
+            "Fix the automatic pair mapping - optional",
+            expanded=mapping_required,
+        ):
+            st.caption(
+                "Use this only when products are not adjacent, one benchmark is shared by several "
+                "candidates, or an extra product must be ignored."
+            )
+            item_by_source = {
+                f"{item.filename}::{item.source_sheet}": item for item in paired_items
+            }
+            selected_source = st.selectbox(
+                "Split to adjust",
+                list(item_by_source),
+                format_func=lambda value: item_by_source[value].split_name,
+                key=f"paired_mapping_source_{key}",
+            )
+            selected_item = item_by_source[selected_source]
+            product_choices = {
+                f"{position + 1}. {name}": position
+                for position, name in enumerate(selected_item.product_names)
+            }
+            choice_for_position = {position: label for label, position in product_choices.items()}
+            default_positions = [
+                [position, position + 1]
+                for position in range(0, len(selected_item.product_names) - 1, 2)
+            ]
+            current_positions = paired_mappings.get(selected_source, default_positions)
+            mapping_rows = [
+                {
+                    "Benchmark": choice_for_position.get(pair[0], ""),
+                    "Candidate": choice_for_position.get(pair[1], ""),
+                }
+                for pair in current_positions
+                if len(pair) == 2
+            ]
+            mapping_table = st.data_editor(
+                pd.DataFrame(mapping_rows, columns=["Benchmark", "Candidate"]),
+                hide_index=True,
+                width="stretch",
+                num_rows="dynamic",
+                column_config={
+                    "Benchmark": st.column_config.SelectboxColumn(
+                        options=list(product_choices), required=True, width="large"
+                    ),
+                    "Candidate": st.column_config.SelectboxColumn(
+                        options=list(product_choices), required=True, width="large"
+                    ),
+                },
+                key=f"paired_mapping_table_{key}_{selected_source}",
+            )
+            mapped_positions = []
+            mapping_error = ""
+            for mapping_row in mapping_table.to_dict("records"):
+                benchmark_label = str(mapping_row.get("Benchmark") or "")
+                candidate_label = str(mapping_row.get("Candidate") or "")
+                if benchmark_label not in product_choices or candidate_label not in product_choices:
+                    mapping_error = "Choose both products for every kept pair."
+                    break
+                benchmark_position = product_choices[benchmark_label]
+                candidate_position = product_choices[candidate_label]
+                if benchmark_position == candidate_position:
+                    mapping_error = "A pair cannot use the same product as Benchmark and Candidate."
+                    break
+                mapped_positions.append([benchmark_position, candidate_position])
+            used_positions = {position for pair in mapped_positions for position in pair}
+            unused = [
+                choice_for_position[position]
+                for position in range(len(selected_item.product_names))
+                if position not in used_positions
+            ]
+            if unused:
+                st.caption("Products excluded from this split: " + " · ".join(unused))
+            if mapping_error:
+                st.error(mapping_error)
+            mapping_buttons = st.columns(2)
+            if mapping_buttons[0].button(
+                "Save this pair mapping",
+                disabled=bool(mapping_error) or not mapped_positions,
+                key=f"save_paired_mapping_{key}_{selected_source}",
+            ):
+                paired_mappings[selected_source] = mapped_positions
+                st.session_state[mapping_state_key] = paired_mappings
+                st.rerun()
+            if mapping_buttons[1].button(
+                "Restore automatic pairing",
+                disabled=selected_source not in paired_mappings,
+                key=f"clear_paired_mapping_{key}_{selected_source}",
+            ):
+                paired_mappings.pop(selected_source, None)
+                st.session_state[mapping_state_key] = paired_mappings
+                st.rerun()
+
     benchmark_positions = tuple(product_options[label] for label in benchmark_labels)
     audit = audit_input_plan(
         info,
@@ -449,6 +568,7 @@ def render_smart_mode():
         benchmark_positions,
         test_type=test_type,
         automatic_exports=test_type == "Monadic" and benchmark_sheet_mode in {"auto_exports","auto_columns"},
+        paired_mappings=paired_mappings,
     )
     if audit['ready']:
         if test_type=='Monadic' and benchmark_sheet_mode in {'auto_exports','auto_columns'}:
@@ -495,6 +615,7 @@ def render_smart_mode():
         "test_type": test_type,
         "mean_decimals": mean_decimals,
         "paired_swaps": paired_swaps,
+        "paired_mappings": paired_mappings,
         "include_sections": include_sections,
         "include_deltas": include_deltas,
         "output_sheet_order": output_sheet_order,
@@ -524,7 +645,11 @@ def render_smart_mode():
         (set(item.product_keys) == set(result_inputs[0].product_keys) if auto_consolidation else item.product_keys == result_inputs[0].product_keys)
         for item in result_inputs
     )
-    paired_plans_valid = all(len(item.product_keys) >= 2 and len(item.product_keys) % 2 == 0 for item in result_inputs)
+    # The input audit validates either the safe adjacent-pair default or the
+    # split-specific mapping saved by the CMI.  Do not re-impose an even
+    # product-count rule here: a valid manual plan may deliberately exclude an
+    # extra product or reuse one shared benchmark for several candidates.
+    paired_plans_valid = test_type != "Paired" or audit["ready"]
     empty_standard_recipes = question_table[
         question_table["Keep"].astype(bool)
         & question_table["Selected metrics"].apply(lambda value: not value)
@@ -566,9 +691,12 @@ def render_smart_mode():
     if duplicates and not auto_consolidation:
         st.error(f"Noms d’onglets en double : {', '.join(sorted(set(duplicates)))}")
     if test_type == "Monadic" and not products_match:
-        st.error("Le plan produits n’est pas identique dans tous les exports.")
+        st.error("Le plan produits n'est pas identique dans tous les exports.")
     if test_type == "Paired" and not paired_plans_valid:
-        st.error("Chaque split Paired doit contenir un nombre pair de produits actifs : Benchmark puis Candidat.")
+        st.error(
+            "At least one Paired split needs a valid Benchmark/Candidate mapping. "
+            "Open 'Fix the automatic pair mapping' above to correct it."
+        )
     if not empty_standard_recipes.empty:
         st.error(f"{len(empty_standard_recipes)} question(s) gardée(s) n’ont aucune métrique cochée.")
     incomplete_comparisons = [
@@ -602,11 +730,11 @@ def render_smart_mode():
         next_steps=[]
         if pending_metrics:next_steps.append('Confirm or cancel the pending metric batch in step 2.')
         if not question_audit['ready'] or not empty_standard_recipes.empty:next_steps.append('In step 2, correct the marked questions and keep at least one source metric for each retained question.')
-        if not audit['ready']:next_steps.append('In Advanced options, open File and comparison checks and correct the reported issue.')
+        if not audit['ready'] and test_type != 'Paired':next_steps.append('In Advanced options, open File and comparison checks and correct the reported issue.')
         if not names.ne('').all() or (duplicates and not auto_consolidation):next_steps.append('In Step 0, provide valid split names; manual split names must be unique.')
         if not product_headers_ready:next_steps.append('In Advanced options, give every product a display name.')
         if test_type=='Monadic' and (not products_match or benchmark_count==0 or not all(benchmark_short_labels)):next_steps.append('In Advanced options, check the product plan, select a benchmark and name each reading.')
-        if test_type=='Paired' and not paired_plans_valid:next_steps.append('In Advanced options, check that every pair contains a benchmark and a candidate.')
+        if test_type=='Paired' and not paired_plans_valid:next_steps.append("Open 'Fix the automatic pair mapping' above and confirm which benchmark is compared with each candidate.")
         if summary_scope!='none' and summary_kpis.empty:next_steps.append('In Advanced options, select a summary KPI or turn off the KPI summary.')
         if next_steps:st.info('What to do next\n\n'+ '\n'.join(f'{i}. {item}' for i,item in enumerate(next_steps,1)))
 
@@ -741,6 +869,7 @@ def render_smart_mode():
                     test_type=test_type,
                     mean_decimals=mean_decimals,
                     paired_swaps=paired_swaps,
+                    paired_mappings=paired_mappings,
                     include_deltas=include_deltas,
                     include_sections=include_sections,
                     benchmark_sheet_mode=benchmark_sheet_mode,

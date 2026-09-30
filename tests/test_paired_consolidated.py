@@ -71,6 +71,43 @@ class ConsolidatedPairedTests(unittest.TestCase):
         self.assertEqual(output["TOTAL"]["E7"].value, "=D7-C7")
         self.assertEqual(output["BOOST"]["E7"].value, "=D7-C7")
 
+    def test_manual_mapping_supports_odd_products_and_a_shared_benchmark(self):
+        workbook = load_workbook(BytesIO(self.source_bytes()))
+        workbook.remove(workbook["BOOST"])
+        total = workbook["TOTAL"]
+        total["F4"] = "0 - C2"
+        buffer = BytesIO()
+        workbook.save(buffer)
+        raw = buffer.getvalue()
+        filename = "odd paired.xlsx"
+        info = inspect_smart_package([(filename, raw)])
+        self.assertEqual(info.study_format, "HUT / in-use")
+        self.assertTrue(info.suggested_test_type.startswith("Paired"))
+        source_key = f"{filename}::{info.inputs[0].source_sheet}"
+        names = [info.inputs[0].split_name]
+        automatic = audit_input_plan(
+            info, names, (), test_type="Paired", automatic_exports=False
+        )
+        self.assertFalse(automatic["ready"])
+        mapping = {source_key: [[0, 1], [0, 2]]}
+        corrected = audit_input_plan(
+            info, names, (), test_type="Paired", automatic_exports=False,
+            paired_mappings=mapping,
+        )
+        self.assertTrue(corrected["ready"], corrected["blockers"])
+
+        rows = [proposal_to_row(item) for item in info.questions]
+        data, report = build_smart_toplines(
+            [(filename, raw)], rows, split_names=names, benchmark_positions=(),
+            standard_metrics=("Mean", "Top Box", "Top 2 Boxes", "Bottom 2 Boxes"),
+            include_screeners=False, test_type="Paired", paired_mappings=mapping,
+        )
+        output = load_workbook(BytesIO(data), data_only=False)[names[0]]
+        self.assertEqual(report["pairs_by_split"][names[0]], 2)
+        self.assertEqual((output["C7"].value, output["D7"].value), (5.0, 5.5))
+        self.assertEqual((output["G7"].value, output["H7"].value), (5.0, 4.8))
+        self.assertEqual(output["I7"].value, "=H7-G7")
+
 
 if __name__ == "__main__":
     unittest.main()
