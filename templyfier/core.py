@@ -542,7 +542,10 @@ def _populate_sheet(
                 candidate_letter = output_sheet.cell(1, out_col).column_letter
                 benchmark_letter = output_sheet.cell(1, benchmark_col).column_letter
                 gap = output_sheet.cell(out_row, gap_col)
-                gap.value = f"={candidate_letter}{out_row}-{benchmark_letter}{out_row}"
+                gap.value = (
+                    f'=IF(COUNT({candidate_letter}{out_row},{benchmark_letter}{out_row})<2,"",'
+                    f'{candidate_letter}{out_row}-{benchmark_letter}{out_row})'
+                )
                 gap.number_format = number_format
                 source_sig_col = _source_significance_col(raw_layout.product_cols[pos], bench_offset)
                 if source_sig_col <= raw_sheet.max_column:

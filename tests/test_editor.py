@@ -71,6 +71,28 @@ class EditorTests(unittest.TestCase):
     def test_numbered_top_word_is_not_an_aggregate(self):
         self.assertNotEqual(_metric_key('1-On top of the bottle'),_metric_key('Top Box'))
 
+    def test_gap_and_paired_delta_formulas_stay_blank_when_a_score_is_missing(self):
+        rows = export_rows([self.rows[0]])
+        for test_type in ('Monadic', 'Paired'):
+            data, _ = build_smart_toplines(
+                [('test.xlsx', self.raw if test_type == 'Monadic' else source_bytes(paired=True))],
+                rows,
+                split_names=['TOTAL'],
+                benchmark_positions=[0],
+                standard_metrics=AGG,
+                include_screeners=False,
+                include_sections=False,
+                test_type=test_type,
+            )
+            workbook = load_workbook(BytesIO(data), data_only=False)
+            formulas = [
+                cell.value for row in workbook.active.iter_rows() for cell in row
+                if cell.data_type == 'f'
+            ]
+            self.assertTrue(formulas)
+            self.assertTrue(all(formula.startswith('=IF(COUNT(') for formula in formulas))
+            self.assertTrue(all('<2,"",' in formula for formula in formulas))
+
     def test_standard_default_and_t3b_only(self):
         row=deepcopy(self.rows[0]);row['Available metric list']=QUESTIONS['Q-1-Overall liking']
         self.assertEqual(default_metric_selection('Standard',row['Available metric list']),['Mean','Top Box','Top 2 Boxes','Bottom 2 Boxes'])

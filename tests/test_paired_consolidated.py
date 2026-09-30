@@ -68,8 +68,8 @@ class ConsolidatedPairedTests(unittest.TestCase):
         output = load_workbook(BytesIO(data), data_only=False)
         self.assertEqual(output.sheetnames, ["TOTAL", "BOOST"])
         self.assertEqual(report["pairs_by_split"], {"TOTAL": 2, "BOOST": 1})
-        self.assertEqual(output["TOTAL"]["E7"].value, "=D7-C7")
-        self.assertEqual(output["BOOST"]["E7"].value, "=D7-C7")
+        self.assertEqual(output["TOTAL"]["E7"].value, '=IF(COUNT(D7,C7)<2,"",D7-C7)')
+        self.assertEqual(output["BOOST"]["E7"].value, '=IF(COUNT(D7,C7)<2,"",D7-C7)')
 
     def test_manual_mapping_supports_odd_products_and_a_shared_benchmark(self):
         workbook = load_workbook(BytesIO(self.source_bytes()))
@@ -106,7 +106,7 @@ class ConsolidatedPairedTests(unittest.TestCase):
         self.assertEqual(report["pairs_by_split"][names[0]], 2)
         self.assertEqual((output["C7"].value, output["D7"].value), (5.0, 5.5))
         self.assertEqual((output["G7"].value, output["H7"].value), (5.0, 4.8))
-        self.assertEqual(output["I7"].value, "=H7-G7")
+        self.assertEqual(output["I7"].value, '=IF(COUNT(H7,G7)<2,"",H7-G7)')
 
 
 if __name__ == "__main__":

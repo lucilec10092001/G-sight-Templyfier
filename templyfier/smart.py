@@ -1987,6 +1987,14 @@ def _mean_number_format(decimals: int) -> str:
     return "0" if decimals == 0 else "0." + ("0" * decimals)
 
 
+def _safe_difference_formula(candidate_coordinate: str, benchmark_coordinate: str) -> str:
+    """Return a blank unless both source cells contain numeric scores."""
+    return (
+        f'=IF(COUNT({candidate_coordinate},{benchmark_coordinate})<2,"",'
+        f'{candidate_coordinate}-{benchmark_coordinate})'
+    )
+
+
 def _selected_question_rows(question_rows: Sequence[dict]) -> list[dict]:
     selected = [row for row in question_rows if bool(row.get("Keep")) and row.get("Type") != "Delete"]
     selected.sort(key=lambda row: (int(row.get("Order", 9999)), str(row.get("Question ID", ""))))
@@ -2235,7 +2243,9 @@ def _build_paired_toplines(
                     bench_letter = get_column_letter(block["benchmark"])
                     cand_letter = get_column_letter(block["candidate"])
                     if block["delta"] is not None:
-                        target.cell(output_row, block["delta"]).value = f"={cand_letter}{output_row}-{bench_letter}{output_row}"
+                        target.cell(output_row, block["delta"]).value = _safe_difference_formula(
+                            f"{cand_letter}{output_row}", f"{bench_letter}{output_row}"
+                        )
                     value_columns = [block["benchmark"], block["candidate"]]
                     if block["delta"] is not None:
                         value_columns.append(block["delta"])
@@ -3298,9 +3308,9 @@ def build_smart_toplines(
                                 benchmark_position = active_benchmarks[bench_offset]
                                 benchmark_value_col = column_blocks[benchmark_position]["value"]
                                 gap_cell = target.cell(output_row, gap_col)
-                                gap_cell.value = (
-                                    f"={get_column_letter(block['value'])}{output_row}-"
-                                    f"{get_column_letter(benchmark_value_col)}{output_row}"
+                                gap_cell.value = _safe_difference_formula(
+                                    f"{get_column_letter(block['value'])}{output_row}",
+                                    f"{get_column_letter(benchmark_value_col)}{output_row}",
                                 )
                                 gap_cell.number_format = number_format
                                 fill = _benchmark_fill(
