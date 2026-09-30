@@ -138,6 +138,28 @@ class MultiStageTests(unittest.TestCase):
                 standard_metrics=("Mean", "Top Box", "Top 2 Boxes", "Bottom 2 Boxes"),
             )
 
+    def test_selected_metric_cannot_disappear_silently(self):
+        workbook = load_workbook(BytesIO(_multistage_export()))
+        wet = workbook["Table_2 2_TAILED"]
+        wet.cell(9, 3).value = None
+        wet.cell(9, 4).value = None
+        buffer = BytesIO()
+        workbook.save(buffer)
+        files = [("DataViz_CLT_NEAT_WET.xlsx", buffer.getvalue())]
+        info = inspect_smart_package(files)
+        rows = [proposal_to_row(question) for question in info.questions]
+        wet_row = next(row for row in rows if row["Stage"] == "WET")
+        wet_row["Selected metrics"] = ["Mean", "Top Box", "Top 2 Boxes", "Bottom 2 Boxes"]
+
+        with self.assertRaisesRegex(TemplyfierError, "missing metrics: Bottom 2 Boxes"):
+            build_smart_toplines(
+                files,
+                rows,
+                split_names=["TOTAL"],
+                benchmark_positions=(0,),
+                standard_metrics=("Mean", "Top Box", "Top 2 Boxes", "Bottom 2 Boxes"),
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

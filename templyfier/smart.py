@@ -2036,6 +2036,7 @@ def _raise_for_question_omissions(omissions: Sequence[dict]) -> None:
             unique.append(item)
     examples = "; ".join(
         f"{item['question_id']} ({item['label']}) -> {item['sheet']}"
+        + (f" [missing metrics: {', '.join(item['missing_metrics'])}]" if item.get("missing_metrics") else "")
         for item in unique[:8]
     )
     remaining = len(unique) - 8
@@ -2045,6 +2046,18 @@ def _raise_for_question_omissions(omissions: Sequence[dict]) -> None:
         f"an expected worksheet: {examples}{suffix}. Nothing has been downloaded. "
         "Check the source G-Sight export or adjust Included splits/Stage in the question table."
     )
+
+
+def _missing_selected_metrics(config: dict, source_sheet, layout, source_rows: Sequence[int]) -> list[str]:
+    """Return explicitly selected metrics that cannot be written from this source."""
+    selected = config.get("Selected metrics")
+    if not isinstance(selected, (list, tuple)) or not selected:
+        return []
+    written = {
+        _metric_key(_text(source_sheet.cell(row, layout.metric_col).value))
+        for row in source_rows
+    }
+    return [metric for metric in selected if _metric_key(metric) not in written]
 
 
 def _source_metric_row_count(sheet, layout) -> int:
@@ -2164,6 +2177,15 @@ def _build_paired_toplines(
                     "question_id": question_id,
                     "label": _text(config.get("Display label")) or question_id,
                     "sheet": sheet_name,
+                })
+                continue
+            missing_metrics = _missing_selected_metrics(config, source_sheet, layout, source_rows)
+            if missing_metrics:
+                question_omissions.append({
+                    "question_id": question_id,
+                    "label": _text(config.get("Display label")) or question_id,
+                    "sheet": sheet_name,
+                    "missing_metrics": missing_metrics,
                 })
                 continue
             section = _text(config.get("Section")) or "TOPLINES"
@@ -3212,6 +3234,21 @@ def build_smart_toplines(
                         "question_id": question_id,
                         "label": _text(config.get("Display label")) or question_id,
                         "sheet": target.title,
+                    })
+                    continue
+                # Side-by-side benchmark panels intentionally align a metric
+                # that exists in one reading as a documented blank in another.
+                # combine_readings reports those cells separately, so this is
+                # not an unexplained omission.
+                missing_metrics = [] if columns_mode else _missing_selected_metrics(
+                    config, source_sheet, layout, source_rows
+                )
+                if missing_metrics:
+                    question_omissions.append({
+                        "question_id": question_id,
+                        "label": _text(config.get("Display label")) or question_id,
+                        "sheet": target.title,
+                        "missing_metrics": missing_metrics,
                     })
                     continue
 
