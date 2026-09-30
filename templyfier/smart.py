@@ -2007,6 +2007,46 @@ def _question_applies_to_split(config: dict, split_name: str) -> bool:
     return _normal(split_name) in requested
 
 
+def _question_expected_in_source(config: dict, split_name: str, source_sheet) -> bool:
+    """Return whether a selected question must be present in this source table."""
+    if not _question_applies_to_split(config, split_name):
+        return False
+    raw_stage = _text(config.get("Stage"))
+    requested_stages = {
+        _normal(value)
+        for value in re.split(r"[;|\n]+", raw_stage)
+        if _normal(value) not in {"", "all", "all stages", "unassigned", "none", "not specified"}
+    }
+    source_stage = _normal(_stage_name(source_sheet))
+    if not requested_stages or source_stage in {"", "none", "not specified", "non precise"}:
+        return True
+    return source_stage in requested_stages
+
+
+def _raise_for_question_omissions(omissions: Sequence[dict]) -> None:
+    """Block download when a selected question is absent from an expected sheet."""
+    if not omissions:
+        return
+    unique = []
+    seen = set()
+    for item in omissions:
+        identity = (item["question_id"].casefold(), item["sheet"].casefold())
+        if identity not in seen:
+            seen.add(identity)
+            unique.append(item)
+    examples = "; ".join(
+        f"{item['question_id']} ({item['label']}) -> {item['sheet']}"
+        for item in unique[:8]
+    )
+    remaining = len(unique) - 8
+    suffix = f"; and {remaining} more" if remaining > 0 else ""
+    raise TemplyfierError(
+        "Safety check stopped the export because selected questions would be missing from "
+        f"an expected worksheet: {examples}{suffix}. Nothing has been downloaded. "
+        "Check the source G-Sight export or adjust Included splits/Stage in the question table."
+    )
+
+
 def _source_metric_row_count(sheet, layout) -> int:
     return sum(
         1 for row in range(layout.header_row + 1, sheet.max_row + 1)
@@ -2066,6 +2106,7 @@ def _build_paired_toplines(
     used_names: set[str] = set()
     written_data_rows = 0
     skipped_questions = 0
+    question_omissions: list[dict] = []
     mean_format = _mean_number_format(mean_decimals)
     pairs_by_split: dict[str, int] = {}
     summary_records = []
@@ -2111,7 +2152,7 @@ def _build_paired_toplines(
         previous_variable_label = None
         summary_question_rows: dict[str, list[tuple[int, str]]] = {}
         for config in selected_questions:
-            if not _question_applies_to_split(config, split_names[file_index]):
+            if not _question_expected_in_source(config, split_names[file_index], source_sheet):
                 continue
             question_id = _text(config.get("Question ID"))
             question_type = _text(config.get("Type"))
@@ -2119,6 +2160,11 @@ def _build_paired_toplines(
             source_rows = configured_source_rows(source_sheet, layout, config, standard_metrics)
             if not source_rows:
                 skipped_questions += 1
+                question_omissions.append({
+                    "question_id": question_id,
+                    "label": _text(config.get("Display label")) or question_id,
+                    "sheet": sheet_name,
+                })
                 continue
             section = _text(config.get("Section")) or "TOPLINES"
             if include_sections and section != current_section:
@@ -2211,6 +2257,7 @@ def _build_paired_toplines(
             "product_names": paired_product_names,
         })
 
+    _raise_for_question_omissions(question_omissions)
     total_index = max(range(len(data_sheets)), key=lambda i: sum(count or 0 for count in _signature(data_sheets[i], layouts[i])))
     summary_sheet_names, summary_detail_sheet = _create_paired_summary(
         output,
@@ -3008,6 +3055,7 @@ def build_smart_toplines(
     total_index = max(range(len(data_sheets)), key=lambda i: sum(count or 0 for count in _signature(data_sheets[i], layouts[i])))
     written_data_rows = 0
     skipped_stage_questions = 0
+    question_omissions: list[dict] = []
     mean_format = _mean_number_format(mean_decimals)
 
     generated_sheet_names = []
@@ -3139,7 +3187,7 @@ def build_smart_toplines(
             previous_variable_label = None
             summary_question_rows: dict[str, list[tuple[int, str]]] = {}
             for config in selected_questions:
-                if not _question_applies_to_split(config, split_display_name):
+                if not _question_expected_in_source(config, split_display_name, source_sheet):
                     continue
                 section = _text(config.get("Section")) or "TOPLINES"
                 if include_sections and section != current_section:
@@ -3160,6 +3208,11 @@ def build_smart_toplines(
                 source_rows = configured_source_rows(source_sheet, layout, config, standard_metrics)
                 if not source_rows:
                     skipped_stage_questions += 1
+                    question_omissions.append({
+                        "question_id": question_id,
+                        "label": _text(config.get("Display label")) or question_id,
+                        "sheet": target.title,
+                    })
                     continue
 
                 for metric_index, source_row in enumerate(source_rows):
@@ -3245,6 +3298,7 @@ def build_smart_toplines(
                 "source_workbook": source_workbooks[file_index],
             })
 
+    _raise_for_question_omissions(question_omissions)
     summary_sheet_names, summary_detail_sheet = _create_monadic_summaries(
         output,
         used_names,

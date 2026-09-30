@@ -3,6 +3,7 @@ import unittest
 
 from openpyxl import Workbook, load_workbook
 
+from templyfier.core import TemplyfierError
 from templyfier.smart import build_smart_toplines, inspect_smart_package, proposal_to_row
 
 
@@ -116,6 +117,26 @@ class MultiStageTests(unittest.TestCase):
         )
         self.assertTrue(output)
         self.assertEqual(report["data_rows_written"], 4)
+
+    def test_selected_question_cannot_disappear_silently(self):
+        source = _multistage_export()
+        files = [("DataViz_CLT_NEAT_WET.xlsx", source)]
+        info = inspect_smart_package(files)
+        rows = [proposal_to_row(question) for question in info.questions]
+        missing = dict(rows[0])
+        missing["Question ID"] = "Q-99-MISSING"
+        missing["Display label"] = "Missing safety-check example"
+        missing["Stage"] = "WET"
+        rows.append(missing)
+
+        with self.assertRaisesRegex(TemplyfierError, "Safety check stopped the export"):
+            build_smart_toplines(
+                files,
+                rows,
+                split_names=["TOTAL"],
+                benchmark_positions=(0,),
+                standard_metrics=("Mean", "Top Box", "Top 2 Boxes", "Bottom 2 Boxes"),
+            )
 
 
 if __name__ == "__main__":
