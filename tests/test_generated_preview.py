@@ -26,9 +26,10 @@ class GeneratedPreviewTests(unittest.TestCase):
 
         self.assertEqual(names, ("TOTAL", "Screeners"))
         self.assertEqual(dimensions["TOTAL"], (2, 3))
-        self.assertEqual(previews["TOTAL"].iloc[1]["A"], "Overall liking")
-        self.assertEqual(previews["TOTAL"].iloc[1]["B"], 6.4)
-        self.assertNotIn("C", previews["TOTAL"].columns)
+        self.assertIn("Overall liking", previews["TOTAL"])
+        self.assertIn("6.4", previews["TOTAL"])
+        self.assertNotIn("=B2-5", previews["TOTAL"])
+        self.assertIn("border-collapse:collapse", previews["TOTAL"])
 
 
 if __name__ == "__main__":

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+import html
 import json
+import re
 from io import BytesIO
 from pathlib import Path
 
@@ -51,22 +53,97 @@ def _question_content_signature(frame):
 
 @st.cache_data(show_spinner=False)
 def _generated_workbook_preview(payload: bytes, max_rows: int = 24, max_columns: int = 18):
-    """Read a small window from the actual generated workbook once."""
-    workbook = load_workbook(BytesIO(payload), read_only=True, data_only=False)
+    """Render a compact visual preview using the actual workbook styles."""
+    workbook = load_workbook(BytesIO(payload), read_only=False, data_only=False)
     previews = {}
     dimensions = {}
+
+    def color(value, fallback):
+        if value and value.type == "rgb" and value.rgb:
+            rgb = str(value.rgb)[-6:]
+            if re.fullmatch(r"[0-9A-Fa-f]{6}", rgb):
+                return f"#{rgb}"
+        return fallback
+
+    def display_value(sheet, cell):
+        value = cell.value
+        if isinstance(value, str) and value.startswith("="):
+            coordinates = re.findall(r"\b([A-Z]{1,3}[1-9][0-9]*)\b", value)
+            if len(coordinates) >= 2:
+                candidate = sheet[coordinates[-2]].value
+                benchmark = sheet[coordinates[-1]].value
+                if all(isinstance(item, (int, float)) and not isinstance(item, bool)
+                       for item in (candidate, benchmark)):
+                    result = candidate - benchmark
+                    if "*100" in value.replace(" ", ""):
+                        result *= 100
+                    value = result
+                else:
+                    return "—"
+            else:
+                return "—"
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            number_format = str(cell.number_format or "")
+            if "pts" in number_format:
+                return f"{value:+.1f} pts"
+            if "%" in number_format:
+                decimals = 1 if "0.0" in number_format else 0
+                return f"{value * 100:.{decimals}f}%"
+            if "." in number_format:
+                decimals = len(number_format.split(".", 1)[1].split(";", 1)[0])
+                return f"{value:.{min(decimals, 3)}f}"
+        return "" if value is None else str(value)
+
     for sheet in workbook.worksheets:
         row_limit = min(sheet.max_row, max_rows)
         column_limit = min(sheet.max_column, max_columns)
-        columns = [get_column_letter(column) for column in range(1, column_limit + 1)]
-        records = []
+        merged = {}
+        covered = set()
+        for area in sheet.merged_cells.ranges:
+            if area.min_row > row_limit or area.min_col > column_limit:
+                continue
+            colspan = min(area.max_col, column_limit) - area.min_col + 1
+            rowspan = min(area.max_row, row_limit) - area.min_row + 1
+            merged[(area.min_row, area.min_col)] = (rowspan, colspan)
+            for row in range(area.min_row, min(area.max_row, row_limit) + 1):
+                for column in range(area.min_col, min(area.max_col, column_limit) + 1):
+                    if (row, column) != (area.min_row, area.min_col):
+                        covered.add((row, column))
+        column_styles = []
+        for column in range(1, column_limit + 1):
+            width = sheet.column_dimensions[get_column_letter(column)].width or 12
+            column_styles.append(f"width:{max(55, min(int(width * 7), 220))}px")
+        rows_html = []
         for row in range(1, row_limit + 1):
-            record = {"Excel row": row}
-            for column, label in enumerate(columns, 1):
-                value = sheet.cell(row, column).value
-                record[label] = value if value is not None else ""
-            records.append(record)
-        previews[sheet.title] = pd.DataFrame(records, columns=["Excel row", *columns])
+            cells = []
+            for column in range(1, column_limit + 1):
+                if (row, column) in covered:
+                    continue
+                cell = sheet.cell(row, column)
+                rowspan, colspan = merged.get((row, column), (1, 1))
+                fill = color(cell.fill.fgColor, "#FFFFFF") if cell.fill.fill_type else "#FFFFFF"
+                font_color = color(cell.font.color, "#20252A")
+                align = cell.alignment.horizontal if cell.alignment.horizontal in {"left", "center", "right"} else "left"
+                style = (
+                    f"background:{fill};color:{font_color};text-align:{align};"
+                    f"font-weight:{'700' if cell.font.bold else '400'};"
+                    "border:1px solid #D9DEE3;padding:6px 8px;vertical-align:middle;"
+                    "white-space:normal;overflow-wrap:anywhere;"
+                )
+                attributes = (
+                    (f' rowspan="{rowspan}"' if rowspan > 1 else "")
+                    + (f' colspan="{colspan}"' if colspan > 1 else "")
+                )
+                cells.append(
+                    f'<td{attributes} style="{style}">{html.escape(display_value(sheet, cell))}</td>'
+                )
+            rows_html.append("<tr>" + "".join(cells) + "</tr>")
+        colgroup = "".join(f'<col style="{style}">' for style in column_styles)
+        previews[sheet.title] = (
+            '<div style="overflow:auto;max-height:560px;border:1px solid #D9DEE3;border-radius:10px;">'
+            '<table style="border-collapse:collapse;table-layout:fixed;min-width:100%;font-size:13px;">'
+            f"<colgroup>{colgroup}</colgroup><tbody>{''.join(rows_html)}</tbody></table></div>"
+        )
         dimensions[sheet.title] = (sheet.max_row, sheet.max_column)
     workbook.close()
     return tuple(previews), previews, dimensions
@@ -1007,17 +1084,10 @@ def render_smart_mode():
                 f"This is the actual generated workbook: {total_rows} rows × {total_columns} columns. "
                 f"Showing the first {min(total_rows, 24)} rows and {min(total_columns, 18)} columns."
             )
-            st.dataframe(
-                previews[preview_sheet],
-                hide_index=True,
-                width="stretch",
-                height=520,
-                column_config={
-                    "Excel row": st.column_config.NumberColumn("Row", width="small", format="%d")
-                },
-            )
+            st.markdown(previews[preview_sheet], unsafe_allow_html=True)
             st.caption(
-                "Formulas are shown as formulas here and will calculate normally when the file opens in Excel."
+                "The preview reproduces the generated layout, colours and number formats. "
+                "Excel remains the reference for exact print dimensions."
             )
         st.download_button(
             "⬇️ Télécharger mes toplines",
