@@ -19,6 +19,7 @@ from templyfier.smart import (
     _summary_higher_is_better,
     audit_input_plan,
     build_smart_toplines,
+    cmr_benchmark_positions,
     cmr_product_label,
     humanize_question,
     inspect_smart_package,
@@ -1064,3 +1065,28 @@ class TemplyfierRegressionTests(unittest.TestCase):
         )[0]
         self.assertEqual(description_match.matched_by, "Code dans Formula description")
         self.assertEqual(description_match.suggested_label, "MOONLIGHT")
+
+    def test_cmr_benchmarks_match_composite_gsight_headers(self):
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "Candidates & Bench"
+        sheet.append([
+            "CMR code", "Formula code", "Fantasy name", "Formula description",
+            "Formula type", "Fr-Land ID",
+        ])
+        sheet.append(["A26", "", "Benchmark A", "", "Benchmark", 356897])
+        sheet.append(["B35", "", "Benchmark B", "", "benchmark", "355433.0"])
+        sheet.append(["C91", "UAH132BUA", "Candidate C", "", "Candidate", ""])
+        buffer = BytesIO()
+        workbook.save(buffer)
+
+        matches = match_cmr_products(
+            ("A26356897", "B35355433", "C9108UAH132BUA"),
+            ("A26 356897", "B35 355433", "C91 0.8% UAH132BUA"),
+            buffer.getvalue(),
+        )
+
+        self.assertEqual([item.score for item in matches], [99, 99, 98])
+        self.assertEqual(cmr_benchmark_positions(matches), (0, 1))
+        self.assertEqual(matches[0].formula_type, "Benchmark")
+        self.assertEqual(matches[1].fr_land_id, "355433.0")

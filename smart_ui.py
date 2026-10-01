@@ -14,6 +14,7 @@ from templyfier.smart import (
     STANDARD_METRICS,
     audit_input_plan,
     build_smart_toplines,
+    cmr_benchmark_positions,
     cmr_product_label,
     inspect_smart_package,
     match_cmr_products,
@@ -108,6 +109,10 @@ def render_smart_mode():
                 cmr_matches = match_cmr_products(
                     result_inputs[0].product_keys, info.product_names, cmr_upload.getvalue()
                 )
+                cmr_benchmark_keys = {
+                    result_inputs[0].product_keys[position]
+                    for position in cmr_benchmark_positions(cmr_matches)
+                }
         except Exception as exc:
             st.error(f"The files could not be analysed: {exc}")
             st.stop()
@@ -123,7 +128,12 @@ def render_smart_mode():
                     for item in result_inputs
                 ],
                 "Nom de l'onglet": [item.split_name for item in result_inputs],
-                "Benchmark détecté": [" · ".join(item.comparison_codes) or "—" for item in result_inputs],
+                "Benchmark détecté": [
+                    " · ".join(item.comparison_codes)
+                    or " · ".join(key for key in item.product_keys if key in cmr_benchmark_keys)
+                    or "—"
+                    for item in result_inputs
+                ],
                 "Bases": [" · ".join("?" if n is None else str(n) for n in item.counts) for item in result_inputs],
                 "Split detection": [item.split_detection for item in result_inputs],
             }),
@@ -235,6 +245,11 @@ def render_smart_mode():
     highlight_benchmarks = bool(settings.get("highlight_benchmarks", True))
 
     detected_codes = list(dict.fromkeys(code for item in result_inputs for code in item.comparison_codes))
+    if not detected_codes:
+        detected_codes = [
+            result_inputs[0].product_keys[position]
+            for position in cmr_benchmark_positions(state.get("cmr_matches", ()))
+        ]
     if detected_codes:
         st.caption("Benchmarks detected automatically: " + " · ".join(detected_codes))
     else:
@@ -394,22 +409,30 @@ def render_smart_mode():
     if not product_headers_ready:
         st.error("Chaque produit doit conserver un nom affiché.")
     if test_type == "Monadic":
-        detected_codes = list(dict.fromkeys(
+        comparison_codes = list(dict.fromkeys(
             code for item in result_inputs for code in item.comparison_codes if code in canonical_keys
         ))
-        detected_positions = [canonical_keys.index(code) for code in detected_codes]
+        if comparison_codes:
+            detected_positions = [canonical_keys.index(code) for code in comparison_codes]
+            benchmark_source = "g-sight"
+        else:
+            detected_positions = list(cmr_benchmark_positions(cmr_matches))
+            benchmark_source = "cmr"
         benchmark_labels = [list(product_options)[position] for position in detected_positions]
-        benchmark_source = "auto"
         benchmark_count = len(benchmark_labels)
         columns = benchmark_layout == "All benchmarks side by side"
-        benchmark_sheet_mode = "auto_columns" if columns else "auto_exports"
+        if benchmark_source == "g-sight":
+            benchmark_sheet_mode = "auto_columns" if columns else "auto_exports"
+        else:
+            benchmark_sheet_mode = "benchmark_columns" if columns else "separate"
         benchmark_short_labels = [
             clean_product_labels[position] or info.product_names[position]
             for position in detected_positions
         ]
         if benchmark_labels:
             st.caption(
-                f"Automatic benchmark detection: {benchmark_count} benchmark(s) — "
+                f"Automatic benchmark detection ({'G-Sight' if benchmark_source == 'g-sight' else 'CMR'}): "
+                f"{benchmark_count} benchmark(s) - "
                 + " · ".join(benchmark_short_labels)
             )
         else:

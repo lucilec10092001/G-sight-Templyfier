@@ -293,6 +293,8 @@ class CmrProductMatch:
     formula_code: str = ""
     formula_description: str = ""
     fantasy_name: str = ""
+    formula_type: str = ""
+    fr_land_id: str = ""
     suggested_label: str = ""
     matched_by: str = "Aucun rapprochement fiable"
     confidence: str = "—"
@@ -401,9 +403,18 @@ def _cmr_match_score(product_key: str, source_name: str, product: CmrProduct) ->
     formula_code = re.sub(r"[^A-Z0-9]", "", product.formula_code.upper())
     if key and cmr_code and key == cmr_code:
         return 100, "Code CMR exact"
+    # Product headers often combine the CMR code and another stable identifier,
+    # for example "A26 356897". Match the code as a complete token so A2 cannot
+    # accidentally match A26.
+    if cmr_code and re.search(
+        rf"(?<![A-Z0-9]){re.escape(cmr_code)}(?![A-Z0-9])",
+        _text(source_name).upper(),
+    ):
+        return 99, "Code CMR exact dans le nom G-Sight"
     if formula_code and formula_code.lower() in compact_source:
         return 98, "Formula code exact"
-    fr_land_digits = re.sub(r"\D", "", product.fr_land_id)
+    fr_land_value = re.sub(r"\.0+$", "", _text(product.fr_land_id).strip())
+    fr_land_digits = re.sub(r"\D", "", fr_land_value)
     if len(fr_land_digits) >= 4 and fr_land_digits in re.sub(r"\D", "", source_name):
         return 95, "Fr-Land ID exact"
     description_codes = {
@@ -467,12 +478,23 @@ def match_cmr_products(
             formula_code=product.formula_code,
             formula_description=product.formula_description,
             fantasy_name=product.fantasy_name,
+            formula_type=product.formula_type,
+            fr_land_id=product.fr_land_id,
             suggested_label=suggestion,
             matched_by=matched_by,
             confidence=confidence,
             score=score,
         ))
     return tuple(matches)
+
+
+def cmr_benchmark_positions(matches: Sequence[CmrProductMatch]) -> tuple[int, ...]:
+    """Return reliable benchmark positions declared explicitly by the CMR."""
+    return tuple(
+        index
+        for index, match in enumerate(matches)
+        if match.score >= 95 and "benchmark" in _normal(match.formula_type)
+    )
 
 
 def _stage_name(sheet) -> str:
@@ -492,7 +514,11 @@ def _stage_name(sheet) -> str:
 def _embedded_data_sheets(workbook):
     sheets = []
     for sheet in workbook.worksheets:
-        if re.match(r"^Table_\d+(?:\s+|_)2_TAILED$", sheet.title, flags=re.I):
+        # G-Sight names these sheets either "Table_1 2_TAILED" or with the
+        # evaluated stage, such as "NEAT 2_TAILED".  The 1_TAILED and DELTA
+        # companion sheets contain the same study data under a different
+        # significance view and must never be interpreted as extra splits.
+        if re.search(r"(?:^|[ _-])2[ _-]*TAILED$", sheet.title, flags=re.I):
             try:
                 detect_layout(sheet)
                 sheets.append(sheet)
