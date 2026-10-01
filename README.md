@@ -1,4 +1,4 @@
-# G-Sight Templyfier v72
+# G-Sight Templyfier v73
 
 Templyfier turns G-Sight DataViz outputs into editable Excel toplines for consumer research studies. The interface is in English and the question detection supports English and French source wording. No consumer files or credentials are included in this repository.
 
@@ -63,4 +63,4 @@ For an internal server deployment, follow `SERVER_DEPLOYMENT.md`. The current pu
 
 ## Validation
 
-Version 72 replaces the technical grid preview with a visual rendering of the generated Excel layout. See `CHANGES_v72.md` and `VALIDATION_v72.md`.
+Version 73 removes the generated-workbook preview so the final step stays focused on validation and download. See `CHANGES_v73.md` and `VALIDATION_v73.md`.
