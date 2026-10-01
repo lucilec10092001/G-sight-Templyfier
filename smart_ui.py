@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+from io import BytesIO
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
 from question_editor import render_question_editor
 
 from templyfier.core import TemplyfierError
@@ -44,6 +47,29 @@ def _question_content_signature(frame):
     """Track content decisions without treating optional row order as a new review."""
     content = frame.drop(columns=['Order'], errors='ignore')
     return hashlib.sha1(content.to_json(orient='records').encode('utf-8')).hexdigest()
+
+
+@st.cache_data(show_spinner=False)
+def _generated_workbook_preview(payload: bytes, max_rows: int = 24, max_columns: int = 18):
+    """Read a small window from the actual generated workbook once."""
+    workbook = load_workbook(BytesIO(payload), read_only=True, data_only=False)
+    previews = {}
+    dimensions = {}
+    for sheet in workbook.worksheets:
+        row_limit = min(sheet.max_row, max_rows)
+        column_limit = min(sheet.max_column, max_columns)
+        columns = [get_column_letter(column) for column in range(1, column_limit + 1)]
+        records = []
+        for row in range(1, row_limit + 1):
+            record = {"Excel row": row}
+            for column, label in enumerate(columns, 1):
+                value = sheet.cell(row, column).value
+                record[label] = value if value is not None else ""
+            records.append(record)
+        previews[sheet.title] = pd.DataFrame(records, columns=["Excel row", *columns])
+        dimensions[sheet.title] = (sheet.max_row, sheet.max_column)
+    workbook.close()
+    return tuple(previews), previews, dimensions
 
 
 def _step(stage, title, hint):
@@ -945,6 +971,7 @@ def render_smart_mode():
             st.exception(exc)
 
     if st.session_state.get(f"smart_result_{key}") and not pending_metrics:
+        generated_payload = st.session_state[f"smart_result_{key}"]
         report = st.session_state[f"smart_report_{key}"]
         st.success(
             f"Fichier prêt : {report['test_type']}, {report['questions']} questions sélectionnées et {len(report['splits'])} onglets générés.",
@@ -968,9 +995,33 @@ def render_smart_mode():
                 f"Splits générés : {len(report.get('splits', []))} · "
                 f"Synthèses KPI : {len(report.get('summary_sheets', []))}"
             )
+        with st.expander("Preview generated Excel - optional", expanded=False):
+            sheet_names, previews, dimensions = _generated_workbook_preview(generated_payload)
+            preview_sheet = st.selectbox(
+                "Worksheet to preview",
+                sheet_names,
+                key=f"generated_preview_sheet_{key}",
+            )
+            total_rows, total_columns = dimensions[preview_sheet]
+            st.caption(
+                f"This is the actual generated workbook: {total_rows} rows × {total_columns} columns. "
+                f"Showing the first {min(total_rows, 24)} rows and {min(total_columns, 18)} columns."
+            )
+            st.dataframe(
+                previews[preview_sheet],
+                hide_index=True,
+                width="stretch",
+                height=520,
+                column_config={
+                    "Excel row": st.column_config.NumberColumn("Row", width="small", format="%d")
+                },
+            )
+            st.caption(
+                "Formulas are shown as formulas here and will calculate normally when the file opens in Excel."
+            )
         st.download_button(
             "⬇️ Télécharger mes toplines",
-            data=st.session_state[f"smart_result_{key}"],
+            data=generated_payload,
             file_name=Path(output_name).name,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             type="primary",
