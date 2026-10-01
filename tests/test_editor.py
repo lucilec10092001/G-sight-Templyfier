@@ -6,7 +6,7 @@ import unittest
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import PatternFill
 
-from templyfier.core import detect_layout
+from templyfier.core import TemplyfierError, detect_layout
 from templyfier.editor_model import (change_type, export_rows, group_rows, matching_selection,
                                      prepare_rows, rename_group, reorder_rows, set_metric_selection)
 from templyfier.smart import (STANDARD_METRICS, _classify, _metric_key, _validate_generated_xlsx, apply_profile,
@@ -116,6 +116,25 @@ class EditorTests(unittest.TestCase):
             include_screeners=False, include_sections=True,
         )
         _validate_generated_xlsx(data)
+
+    def test_retained_question_cannot_silently_disappear_from_every_sheet(self):
+        rows = export_rows([self.rows[0]])
+        rows[0]["Included splits"] = "A split that does not exist"
+        with self.assertRaisesRegex(TemplyfierError, "would not appear in any topline"):
+            build_smart_toplines(
+                [("test.xlsx", self.raw)], rows,
+                split_names=["TOTAL"], benchmark_positions=[0], standard_metrics=AGG,
+                include_screeners=False,
+            )
+
+    def test_duplicate_benchmark_positions_are_rejected(self):
+        rows = export_rows([self.rows[0]])
+        with self.assertRaisesRegex(TemplyfierError, "selected more than once"):
+            build_smart_toplines(
+                [("test.xlsx", self.raw)], rows,
+                split_names=["TOTAL"], benchmark_positions=[0, 0], standard_metrics=AGG,
+                include_screeners=False,
+            )
 
     def test_percentage_gaps_are_points_with_configurable_highlights(self):
         rows = export_rows([self.rows[0]])

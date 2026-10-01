@@ -2144,6 +2144,58 @@ def _raise_for_question_omissions(omissions: Sequence[dict]) -> None:
         + (f" [missing metrics: {', '.join(item['missing_metrics'])}]" if item.get("missing_metrics") else "")
         for item in unique[:8]
     )
+
+
+def _raise_for_unwritten_selected_questions(
+    question_rows: Sequence[dict], summary_records: Sequence[dict]
+) -> None:
+    """Guarantee that every retained question reaches at least one topline sheet."""
+    written = {
+        question_id.casefold()
+        for record in summary_records
+        for question_id, rows in record.get("question_rows", {}).items()
+        if rows
+    }
+    missing = [
+        row for row in _selected_question_rows(question_rows)
+        if _text(row.get("Question ID")).casefold() not in written
+    ]
+    if not missing:
+        return
+    def description(row):
+        selected = row.get("Selected metrics")
+        available = row.get("Available metric list")
+        if not isinstance(available, (list, tuple)):
+            available = [
+                value.strip()
+                for value in re.split(r"\s*[·�]\s*", _text(row.get("Available metrics")))
+                if value.strip()
+            ]
+        unavailable = (
+            [value for value in selected if _metric_key(value) not in {_metric_key(item) for item in available}]
+            if isinstance(selected, (list, tuple)) else []
+        )
+        # When no source-level availability distinction is possible, show the
+        # most specific/last explicit choice first (for example Bottom 2 Boxes).
+        described_metrics = unavailable or (
+            list(reversed(selected)) if isinstance(selected, (list, tuple)) else []
+        )
+        metrics = (
+            f" [missing metrics: {', '.join(_text(value) for value in described_metrics if _text(value))}]"
+            if described_metrics else ""
+        )
+        return (
+            f"{_text(row.get('Question ID'))} "
+            f"({_text(row.get('Display label')) or _text(row.get('Question ID'))}){metrics}"
+        )
+
+    examples = "; ".join(description(row) for row in missing[:8])
+    suffix = f"; and {len(missing) - 8} more" if len(missing) > 8 else ""
+    raise TemplyfierError(
+        "Safety check stopped the export because retained questions would not appear in any "
+        f"topline worksheet: {examples}{suffix}. Nothing has been downloaded. Check their "
+        "Included splits, Stage and selected metrics."
+    )
     remaining = len(unique) - 8
     suffix = f"; and {remaining} more" if remaining > 0 else ""
     raise TemplyfierError(
@@ -2408,6 +2460,7 @@ def _build_paired_toplines(
         })
 
     _raise_for_question_omissions(question_omissions)
+    _raise_for_unwritten_selected_questions(question_rows, summary_records)
     total_index = max(range(len(data_sheets)), key=lambda i: sum(count or 0 for count in _signature(data_sheets[i], layouts[i])))
     summary_sheet_names, summary_detail_sheet = _create_paired_summary(
         output,
@@ -3190,6 +3243,8 @@ def build_smart_toplines(
         benchmarks = tuple(canonical_keys.index(code) for code in detected_codes if code in canonical_keys)
     if not benchmarks or any(pos < 0 or pos >= product_count for pos in benchmarks):
         raise TemplyfierError("Benchmark invalide.")
+    if len(set(benchmarks)) != len(benchmarks):
+        raise TemplyfierError("The same benchmark was selected more than once. Nothing was generated.")
     separate_benchmarks = automatic_exports or (len(benchmarks) > 1 and normalized_sheet_mode.startswith("separate"))
     short_benchmark_labels = [_text(label) for label in (benchmark_labels or ())]
     if short_benchmark_labels and len(short_benchmark_labels) != len(benchmarks):
@@ -3491,6 +3546,7 @@ def build_smart_toplines(
             })
 
     _raise_for_question_omissions(question_omissions)
+    _raise_for_unwritten_selected_questions(question_rows, summary_records)
     summary_sheet_names, summary_detail_sheet = _create_monadic_summaries(
         output,
         used_names,
