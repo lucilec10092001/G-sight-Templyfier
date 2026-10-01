@@ -117,6 +117,24 @@ class EditorTests(unittest.TestCase):
         )
         _validate_generated_xlsx(data)
 
+    def test_percentage_gaps_are_points_with_configurable_highlights(self):
+        rows = export_rows([self.rows[0]])
+        data, _ = build_smart_toplines(
+            [('test.xlsx', self.raw)], rows,
+            split_names=['TOTAL'], benchmark_positions=[0], standard_metrics=AGG,
+            include_screeners=False, include_sections=False,
+            gap_positive_points=4.5, gap_negative_points=6.0,
+        )
+        sheet = load_workbook(BytesIO(data), data_only=False).active
+        formula_cells = [cell for row in sheet.iter_rows() for cell in row if cell.data_type == 'f']
+        mean_gap = next(cell for cell in formula_cells if sheet.cell(cell.row, 2).value == 'Mean')
+        percent_gap = next(cell for cell in formula_cells if sheet.cell(cell.row, 2).value != 'Mean')
+        self.assertNotIn('*100', mean_gap.value)
+        self.assertIn('*100', percent_gap.value)
+        self.assertIn('pts', percent_gap.number_format)
+        self.assertTrue(percent_gap.font.bold)
+        self.assertEqual(percent_gap.font.color.rgb[-6:], '008A3B')
+
     def test_standard_default_and_t3b_only(self):
         row=deepcopy(self.rows[0]);row['Available metric list']=QUESTIONS['Q-1-Overall liking']
         self.assertEqual(default_metric_selection('Standard',row['Available metric list']),['Mean','Top Box','Top 2 Boxes','Bottom 2 Boxes'])

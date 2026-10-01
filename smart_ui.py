@@ -207,6 +207,29 @@ def render_smart_mode():
     )
     include_deltas = show_difference if test_type == "Paired" else True
     show_monadic_gaps = show_difference if test_type == "Monadic" else True
+    gap_highlighting = bool(settings.get("gap_highlighting", True))
+    gap_positive_points = float(settings.get("gap_positive_points", 5.0))
+    gap_negative_points = float(settings.get("gap_negative_points", 5.0))
+    if show_difference:
+        with st.expander("Highlight meaningful point gaps - optional", expanded=False):
+            gap_highlighting = st.checkbox(
+                "Use bold green / red point gaps",
+                value=gap_highlighting,
+                key=f"smart_gap_highlighting_{key}",
+                help="Applies to percentage-based results only. Mean differences keep their usual numeric format.",
+            )
+            threshold_cols = st.columns(2)
+            gap_positive_points = float(threshold_cols[0].number_input(
+                "Green from + (points)", min_value=0.1, max_value=100.0,
+                value=gap_positive_points, step=0.5, key=f"smart_gap_positive_{key}",
+            ))
+            gap_negative_points = float(threshold_cols[1].number_input(
+                "Red from - (points)", min_value=0.1, max_value=100.0,
+                value=gap_negative_points, step=0.5, key=f"smart_gap_negative_{key}",
+            ))
+            st.caption("Example: 5 means +5 pts or more in green, and -5 pts or less in red.")
+    applied_positive_points = gap_positive_points if gap_highlighting else None
+    applied_negative_points = gap_negative_points if gap_highlighting else None
     include_sections = bool(settings.get("include_sections", True))
     output_sheet_order = settings.get("output_sheet_order", "benchmark_first")
     highlight_benchmarks = bool(settings.get("highlight_benchmarks", True))
@@ -243,6 +266,7 @@ def render_smart_mode():
     setup_signature = hashlib.sha1((
         str(study_format) + str(test_type) + benchmark_layout + str(mean_decimals)
         + str(include_screeners) + str(include_kpi_summary) + str(show_difference)
+        + str(applied_positive_points) + str(applied_negative_points)
         + split_table["Nom de l'onglet"].astype(str).str.strip().str.casefold().str.cat(sep="|")
     ).encode("utf-8")).hexdigest()
     if st.session_state.get(f"{gate_prefix}_setup_signature") not in {None, setup_signature}:
@@ -620,6 +644,9 @@ def render_smart_mode():
         "include_deltas": include_deltas,
         "output_sheet_order": output_sheet_order,
         "show_monadic_gaps": show_monadic_gaps,
+        "gap_highlighting": gap_highlighting,
+        "gap_positive_points": gap_positive_points,
+        "gap_negative_points": gap_negative_points,
         "highlight_benchmarks": highlight_benchmarks,
         "product_labels": clean_product_labels,
         "product_subtitles": clean_product_subtitles,
@@ -882,6 +909,8 @@ def render_smart_mode():
                     summary_scope=summary_scope,
                     summary_metric_strategy=summary_metric_strategy,
                     include_summary_details=include_summary_details,
+                    gap_positive_points=applied_positive_points,
+                    gap_negative_points=applied_negative_points,
                 )
                 st.write("Calcul des gaps, des significativités et du KPI Summary")
                 status.update(label="Toplines terminées", state="complete", expanded=False)

@@ -14,6 +14,16 @@ class SplitSuggestionSafetyTests(unittest.TestCase):
             (),
         )
 
+    def test_usual_yellow_fabric_conditioner_wording_stays_in_all_splits(self):
+        self.assertEqual(
+            _suggest_question_splits(
+                "Q-10",
+                "It smells better than my usual yellow fabric conditioner",
+                ("TOTAL", "COMFORT", "LENOR", "YELLOW"),
+            ),
+            (),
+        )
+
     def test_explicit_comparison_wording_can_target_a_split(self):
         self.assertEqual(
             _suggest_question_splits(

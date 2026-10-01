@@ -2010,12 +2010,46 @@ def _mean_number_format(decimals: int) -> str:
     return "0" if decimals == 0 else "0." + ("0" * decimals)
 
 
-def _safe_difference_formula(candidate_coordinate: str, benchmark_coordinate: str) -> str:
+def _safe_difference_formula(
+    candidate_coordinate: str, benchmark_coordinate: str, *, scale: int = 1
+) -> str:
     """Return a blank unless both source cells contain numeric scores."""
+    difference = f"{candidate_coordinate}-{benchmark_coordinate}"
+    if scale != 1:
+        difference = f"({difference})*{scale}"
     return (
         f'=IF(COUNT({candidate_coordinate},{benchmark_coordinate})<2,"",'
-        f'{candidate_coordinate}-{benchmark_coordinate})'
+        f'{difference})'
     )
+
+
+def _style_difference_cell(
+    sheet,
+    cell,
+    *,
+    is_mean: bool,
+    mean_format: str,
+    positive_points: float | None,
+    negative_points: float | None,
+    candidate_value=None,
+    benchmark_value=None,
+) -> None:
+    if is_mean:
+        cell.number_format = mean_format
+        return
+    cell.number_format = '+0.0 "pts";-0.0 "pts";0.0 "pts"'
+    if not (
+        isinstance(candidate_value, (int, float))
+        and not isinstance(candidate_value, bool)
+        and isinstance(benchmark_value, (int, float))
+        and not isinstance(benchmark_value, bool)
+    ):
+        return
+    difference_points = (candidate_value - benchmark_value) * 100
+    if positive_points is not None and difference_points >= float(positive_points):
+        cell.font = Font(color="008A3B", bold=True)
+    elif negative_points is not None and difference_points <= -abs(float(negative_points)):
+        cell.font = Font(color="C62828", bold=True)
 
 
 def _selected_question_rows(question_rows: Sequence[dict]) -> list[dict]:
@@ -2127,6 +2161,8 @@ def _build_paired_toplines(
     summary_scope: str,
     summary_metric_strategy: str,
     include_summary_details: bool,
+    gap_positive_points: float | None,
+    gap_negative_points: float | None,
 ) -> tuple[bytes, dict]:
     virtual_sources = []
     for filename, source in raw_files:
@@ -2279,7 +2315,8 @@ def _build_paired_toplines(
                     cand_letter = get_column_letter(block["candidate"])
                     if block["delta"] is not None:
                         target.cell(output_row, block["delta"]).value = _safe_difference_formula(
-                            f"{cand_letter}{output_row}", f"{bench_letter}{output_row}"
+                            f"{cand_letter}{output_row}", f"{bench_letter}{output_row}",
+                            scale=1 if _metric_key(source_metric) == "mean" else 100,
                         )
                     value_columns = [block["benchmark"], block["candidate"]]
                     if block["delta"] is not None:
@@ -2287,6 +2324,17 @@ def _build_paired_toplines(
                     for col in value_columns:
                         target.cell(output_row, col).number_format = number_format
                         target.cell(output_row, col).alignment = Alignment(horizontal="right")
+                    if block["delta"] is not None:
+                        _style_difference_cell(
+                            target,
+                            target.cell(output_row, block["delta"]),
+                            is_mean=_metric_key(source_metric) == "mean",
+                            mean_format=mean_format,
+                            positive_points=gap_positive_points,
+                            negative_points=gap_negative_points,
+                            candidate_value=source_sheet.cell(source_row, cand_raw_col).value,
+                            benchmark_value=source_sheet.cell(source_row, bench_raw_col).value,
+                        )
                     fill = _benchmark_fill(
                         workbooks[file_index],
                         source_sheet,
@@ -2386,6 +2434,8 @@ def _build_paired_toplines(
         "summary_metric_strategy": summary_metric_strategy,
         "summary_kpis": len(_selected_summary_questions(question_rows)),
         "mean_decimals": int(mean_decimals),
+        "gap_positive_points": gap_positive_points,
+        "gap_negative_points": gap_negative_points,
         "reference_export": virtual_sources[total_index][0],
         "skipped_stage_questions": skipped_questions,
     }
@@ -3027,6 +3077,8 @@ def build_smart_toplines(
     summary_scope: str = "none",
     summary_metric_strategy: str = "priority",
     include_summary_details: bool = True,
+    gap_positive_points: float | None = 5.0,
+    gap_negative_points: float | None = 5.0,
 ) -> tuple[bytes, dict]:
     if not raw_files:
         raise TemplyfierError("Ajoute au moins un export G-Sight.")
@@ -3049,6 +3101,8 @@ def build_smart_toplines(
             summary_scope=summary_scope,
             summary_metric_strategy=summary_metric_strategy,
             include_summary_details=include_summary_details,
+            gap_positive_points=gap_positive_points,
+            gap_negative_points=gap_negative_points,
         )
     if not normalized_test_type.startswith("monadic"):
         raise TemplyfierError("Type de test non reconnu : choisis Paired ou Monadic.")
@@ -3350,8 +3404,21 @@ def build_smart_toplines(
                                 gap_cell.value = _safe_difference_formula(
                                     f"{get_column_letter(block['value'])}{output_row}",
                                     f"{get_column_letter(benchmark_value_col)}{output_row}",
+                                    scale=1 if is_mean else 100,
                                 )
-                                gap_cell.number_format = number_format
+                                _style_difference_cell(
+                                    target,
+                                    gap_cell,
+                                    is_mean=is_mean,
+                                    mean_format=mean_format,
+                                    positive_points=gap_positive_points,
+                                    negative_points=gap_negative_points,
+                                    candidate_value=source_sheet.cell(source_row, raw_col).value,
+                                    benchmark_value=source_sheet.cell(
+                                        source_row,
+                                        layout.product_cols[source_positions[benchmark_position]],
+                                    ).value,
+                                )
                                 fill = _benchmark_fill(
                                     source_workbooks[file_index], source_sheet, layout, source_row, raw_col,
                                     source_positions[benchmark_position], product_keys[file_index],
@@ -3461,5 +3528,7 @@ def build_smart_toplines(
         "reference_export": source_filenames[total_index],
         "skipped_stage_questions": skipped_stage_questions,
         "mean_decimals": int(mean_decimals),
+        "gap_positive_points": gap_positive_points,
+        "gap_negative_points": gap_negative_points,
         "include_sections": bool(include_sections),
     }
