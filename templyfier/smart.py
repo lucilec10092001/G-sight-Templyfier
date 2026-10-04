@@ -182,6 +182,21 @@ def audit_input_plan(
     if not inputs:
         return {"rows": rows, "blockers": ["Aucun export de résultats détecté."], "warnings": [], "ready": False}
 
+    for item in inputs:
+        known_bases = [value for value in item.counts if isinstance(value, int)]
+        if any(value <= 0 for value in known_bases):
+            blockers.append(f"Base nulle détectée dans {item.filename}.")
+        positive_bases = [value for value in known_bases if value > 0]
+        if not positive_bases:
+            warnings.append(
+                f"Aucune base chiffrée n'a pu être lue dans {item.filename}; les scores restent utilisables."
+            )
+        elif len(positive_bases) > 1 and max(positive_bases) / min(positive_bases) > 1.25:
+            warnings.append(
+                f"Bases très différentes entre produits dans {item.filename} "
+                f"({min(positive_bases)} à {max(positive_bases)}). Vérifie le filtre G-Sight."
+            )
+
     canonical = inputs[0].product_keys
     paired = _normal(test_type).startswith("paired")
     for item in inputs:
@@ -392,7 +407,34 @@ def parse_cmr_products(source) -> tuple[CmrProduct, ...]:
         raise TemplyfierError(
             "La CMR ne contient pas de tableau avec les colonnes CMR code et Fantasy name / Formula description."
         )
-    return tuple(products)
+    # Some CMR exports repeat the same catalogue on several worksheets. Exact
+    # duplicates are harmless; conflicting uses of one stable identifier are
+    # ambiguous and must never be resolved by row order.
+    unique = []
+    fingerprints = set()
+    identifiers: dict[tuple[str, str], tuple[tuple[str, ...], int]] = {}
+    for product in products:
+        fingerprint = tuple(_normal(getattr(product, field)) for field in CmrProduct.__dataclass_fields__)
+        if fingerprint in fingerprints:
+            continue
+        fingerprints.add(fingerprint)
+        for kind, raw_value in (
+            ("CMR code", product.cmr_code),
+            ("Fr-Land ID", re.sub(r"\.0+$", "", _text(product.fr_land_id))),
+        ):
+            value = re.sub(r"[^a-z0-9]", "", _normal(raw_value))
+            if not value:
+                continue
+            identity = (kind, value)
+            previous = identifiers.get(identity)
+            if previous and previous[0] != fingerprint:
+                raise TemplyfierError(
+                    f"CMR ambiguity: {kind} '{raw_value}' identifies more than one different product. "
+                    "Correct the duplicate in the CMR export before generating toplines."
+                )
+            identifiers[identity] = (fingerprint, len(unique))
+        unique.append(product)
+    return tuple(unique)
 
 
 def _cmr_match_score(product_key: str, source_name: str, product: CmrProduct) -> tuple[int, str]:
@@ -447,6 +489,10 @@ def match_cmr_products(
     cmr_source,
 ) -> tuple[CmrProductMatch, ...]:
     """Create one-to-one CMR suggestions, prioritising stable technical identifiers."""
+    if len(product_keys) != len(product_names):
+        raise TemplyfierError(
+            "The G-Sight product plan is incomplete: product codes and product names do not have the same length."
+        )
     catalog = parse_cmr_products(cmr_source)
     edges = []
     for product_index, (key, name) in enumerate(zip(product_keys, product_names)):
@@ -454,6 +500,21 @@ def match_cmr_products(
             score, matched_by = _cmr_match_score(key, name, product)
             if score:
                 edges.append((score, product_index, cmr_index, matched_by))
+    for product_index, source_name in enumerate(product_names):
+        candidates = [edge for edge in edges if edge[1] == product_index]
+        if not candidates:
+            continue
+        best_score = max(edge[0] for edge in candidates)
+        best_indexes = {edge[2] for edge in candidates if edge[0] == best_score}
+        if best_score >= 80 and len(best_indexes) > 1:
+            labels = [
+                catalog[index].cmr_code or catalog[index].formula_code or catalog[index].fantasy_name
+                for index in sorted(best_indexes)
+            ]
+            raise TemplyfierError(
+                f"CMR ambiguity for G-Sight product '{source_name}': several CMR rows match with the same "
+                f"confidence ({', '.join(labels)}). Correct the CMR identifiers before generating toplines."
+            )
     assigned_products = {}
     used_cmr = set()
     for score, product_index, cmr_index, matched_by in sorted(edges, reverse=True):
@@ -2146,6 +2207,21 @@ def _raise_for_question_omissions(omissions: Sequence[dict]) -> None:
     )
 
 
+def _raise_for_empty_topline_sheets(summary_records: Sequence[dict]) -> None:
+    empty = [
+        record["target"].title
+        for record in summary_records
+        if not any(record.get("question_rows", {}).values())
+    ]
+    if empty:
+        raise TemplyfierError(
+            "Safety check stopped the export because these topline worksheets would contain no result rows: "
+            + ", ".join(empty[:8])
+            + (f", and {len(empty) - 8} more" if len(empty) > 8 else "")
+            + ". Check the selected stages, splits and metrics."
+        )
+
+
 def _raise_for_unwritten_selected_questions(
     question_rows: Sequence[dict], summary_records: Sequence[dict]
 ) -> None:
@@ -2461,6 +2537,7 @@ def _build_paired_toplines(
 
     _raise_for_question_omissions(question_omissions)
     _raise_for_unwritten_selected_questions(question_rows, summary_records)
+    _raise_for_empty_topline_sheets(summary_records)
     total_index = max(range(len(data_sheets)), key=lambda i: sum(count or 0 for count in _signature(data_sheets[i], layouts[i])))
     summary_sheet_names, summary_detail_sheet = _create_paired_summary(
         output,
@@ -3255,6 +3332,14 @@ def build_smart_toplines(
         raise TemplyfierError("Le nombre de noms produits ne correspond pas au plan produits.")
     if clean_product_subtitles and len(clean_product_subtitles) != product_count:
         raise TemplyfierError("Le nombre de sous-titres produits ne correspond pas au plan produits.")
+    if clean_product_labels:
+        subtitles = clean_product_subtitles or [""] * product_count
+        header_pairs = [(_normal(label), _normal(subtitle)) for label, subtitle in zip(clean_product_labels, subtitles)]
+        if len(set(header_pairs)) != len(header_pairs):
+            raise TemplyfierError(
+                "Two or more products have the same displayed name and subtitle. "
+                "Use distinct Excel product headers before generating."
+            )
     normalized_output_order = _normal(output_sheet_order).replace("_", " ")
     if normalized_output_order not in {"split first", "benchmark first"}:
         raise TemplyfierError("Ordre des onglets inconnu.")
@@ -3547,6 +3632,7 @@ def build_smart_toplines(
 
     _raise_for_question_omissions(question_omissions)
     _raise_for_unwritten_selected_questions(question_rows, summary_records)
+    _raise_for_empty_topline_sheets(summary_records)
     summary_sheet_names, summary_detail_sheet = _create_monadic_summaries(
         output,
         used_names,

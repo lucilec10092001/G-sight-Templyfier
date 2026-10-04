@@ -46,6 +46,25 @@ def _question_content_signature(frame):
     return hashlib.sha1(content.to_json(orient='records').encode('utf-8')).hexdigest()
 
 
+def _support_code(phase: str, file_key: str, exc: Exception) -> str:
+    """Create a deterministic, data-free reference for support conversations."""
+    payload = f"v74|{phase}|{file_key}|{type(exc).__name__}|{exc}"
+    return "TMP-" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:10].upper()
+
+
+def _show_safe_error(phase: str, file_key: str, exc: Exception) -> None:
+    if isinstance(exc, TemplyfierError):
+        st.error(str(exc))
+    else:
+        st.error(
+            "Templyfier encountered an unexpected technical error and stopped safely. "
+            "No workbook was produced."
+        )
+    st.caption(
+        f"Support code: `{_support_code(phase, file_key, exc)}` — share this code with the Templyfier owner."
+    )
+
+
 def _step(stage, title, hint):
     step_number = {
         "upload": 1,
@@ -114,7 +133,7 @@ def render_smart_mode():
                     for position in cmr_benchmark_positions(cmr_matches)
                 }
         except Exception as exc:
-            st.error(f"The files could not be analysed: {exc}")
+            _show_safe_error("file-analysis", key, exc)
             st.stop()
         st.session_state[state_key] = {
             "info": info,
@@ -254,6 +273,14 @@ def render_smart_mode():
         st.caption("Benchmarks detected automatically: " + " · ".join(detected_codes))
     else:
         st.warning("No benchmark could be identified automatically in these outputs.", icon=":material/warning:")
+    unmatched_cmr = [item for item in state.get("cmr_matches", ()) if item.score < 80]
+    if unmatched_cmr:
+        st.warning(
+            f"The CMR could not safely identify {len(unmatched_cmr)} of "
+            f"{len(state.get('cmr_matches', ()))} products. Their G-Sight source names will be kept. "
+            "Check the product headers before generation.",
+            icon=":material/manage_search:",
+        )
 
     st.markdown("**Splits shown in Excel**")
     split_table = st.data_editor(
@@ -406,8 +433,21 @@ def render_smart_mode():
     clean_product_labels = product_table["Nom affiché"].fillna("").astype(str).str.strip().tolist()
     clean_product_subtitles = product_table["Ligne complémentaire / formule"].fillna("").astype(str).str.strip().tolist()
     product_headers_ready = all(clean_product_labels)
+    normalized_product_headers = [
+        (_normal(label), _normal(subtitle))
+        for label, subtitle in zip(clean_product_labels, clean_product_subtitles)
+    ]
+    duplicate_product_headers = {
+        pair for pair in normalized_product_headers
+        if normalized_product_headers.count(pair) > 1
+    }
     if not product_headers_ready:
         st.error("Chaque produit doit conserver un nom affiché.")
+    if duplicate_product_headers:
+        st.error(
+            "Two or more products would have the same Excel header. Give them distinct displayed names "
+            "or formula subtitles before generation."
+        )
     if test_type == "Monadic":
         comparison_codes = list(dict.fromkeys(
             code for item in result_inputs for code in item.comparison_codes if code in canonical_keys
@@ -769,6 +809,7 @@ def render_smart_mode():
         and (test_type == "Monadic" or paired_plans_valid)
         and empty_standard_recipes.empty
         and product_headers_ready
+        and not duplicate_product_headers
         and (summary_scope == "none" or not summary_kpis.empty)
         and audit["ready"]
         and question_audit["ready"]
@@ -783,6 +824,7 @@ def render_smart_mode():
         if not audit['ready'] and test_type != 'Paired':next_steps.append('In Advanced options, open File and comparison checks and correct the reported issue.')
         if not names.ne('').all() or (duplicates and not auto_consolidation):next_steps.append('In Step 0, provide valid split names; manual split names must be unique.')
         if not product_headers_ready:next_steps.append('In Advanced options, give every product a display name.')
+        if duplicate_product_headers:next_steps.append('In Advanced options, distinguish duplicate product headers.')
         if test_type=='Monadic' and (not products_match or benchmark_count==0 or not all(benchmark_short_labels)):next_steps.append('In Advanced options, check the product plan, select a benchmark and name each reading.')
         if test_type=='Paired' and not paired_plans_valid:next_steps.append("Open 'Fix the automatic pair mapping' above and confirm which benchmark is compared with each candidate.")
         if summary_scope!='none' and summary_kpis.empty:next_steps.append('In Advanced options, select a summary KPI or turn off the KPI summary.')
@@ -940,9 +982,9 @@ def render_smart_mode():
             st.session_state[f"smart_result_{key}"] = result
             st.session_state[f"smart_report_{key}"] = report
         except TemplyfierError as exc:
-            st.error(str(exc))
+            _show_safe_error("generation", key, exc)
         except Exception as exc:
-            st.exception(exc)
+            _show_safe_error("generation", key, exc)
 
     if st.session_state.get(f"smart_result_{key}") and not pending_metrics:
         generated_payload = st.session_state[f"smart_result_{key}"]
