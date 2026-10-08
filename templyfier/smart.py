@@ -2244,7 +2244,7 @@ def _raise_for_unwritten_selected_questions(
         if not isinstance(available, (list, tuple)):
             available = [
                 value.strip()
-                for value in re.split(r"\s*[·�]\s*", _text(row.get("Available metrics")))
+                for value in re.split("\\s*[·\\ufffd]\\s*", _text(row.get("Available metrics")))
                 if value.strip()
             ]
         unavailable = (

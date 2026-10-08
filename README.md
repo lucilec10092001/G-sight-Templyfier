@@ -1,4 +1,4 @@
-# G-Sight Templyfier v76
+# G-Sight Templyfier v77
 
 Templyfier turns G-Sight DataViz outputs into editable Excel toplines for consumer research studies. The interface is in English and the question detection supports English and French source wording. No consumer files or credentials are included in this repository.
 

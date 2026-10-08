@@ -59,3 +59,13 @@ class EnglishUiTests(unittest.TestCase):
         self.assertNotIn(' � ', source)
         self.assertIn('icon=":material/check_circle:"', source)
         self.assertIn('page_icon=":material/bar_chart:"', source)
+
+    def test_production_python_sources_have_no_unicode_replacement_character(self):
+        root = Path(__file__).resolve().parents[1]
+        offenders = [
+            str(path.relative_to(root))
+            for path in root.rglob('*.py')
+            if 'tests' not in path.parts
+            and '\ufffd' in path.read_text(encoding='utf-8')
+        ]
+        self.assertEqual(offenders, [])

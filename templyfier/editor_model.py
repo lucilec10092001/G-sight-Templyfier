@@ -20,7 +20,7 @@ def prepare_rows(rows, proposals, stage_names=()):
         if not isinstance(row.get('Grouping choice'), str):
             row['Grouping choice'] = ''
         current_stage = str(row.get('Stage', '')).strip()
-        if not current_stage or current_stage.casefold() in {'unassigned', 'not specified', 'non pr�cis�', 'none'}:
+        if not current_stage or current_stage.casefold() in {'unassigned', 'not specified', 'non précisé', 'none'}:
             from .grouping import stages_for
             detected_stages = stages_for({**row, 'Stage': ''}, stage_names)
             row['Stage'] = ' ; '.join(detected_stages) or 'Unassigned'

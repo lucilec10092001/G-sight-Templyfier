@@ -62,7 +62,7 @@ def render_type_metric_editor(rows, key, revision, commit=None):
                 'Toutes les questions de ce type',
             )
             if commit is not None:
-                skipped = sum(item['R�sultat'].startswith('Inchang�e') for item in preview)
+                skipped = sum(item['Résultat'].startswith('Inchangée') for item in preview)
                 commit(
                     changed,
                     f'Metric recipe applied to {type_display}; '
