@@ -332,7 +332,7 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
         "Save question changes", type="primary", icon=":material/save:",
         key=f"save_question_table_{key}_{revision}_{view_key}",
     )
-    with st.expander("Other changes for selected questions — optional", expanded=False):
+    with st.expander("Other changes for selected questions - optional", expanded=False):
         st.caption(
             "Apply one shared name, group, section, stage, split or KPI choice "
             "to the selected rows."

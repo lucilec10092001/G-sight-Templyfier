@@ -6,7 +6,7 @@ from english_ui import _table, choice
 
 class EnglishUiTests(unittest.TestCase):
     def test_table_display_translation_preserves_all_unedited_internal_fields(self):
-        source=pd.DataFrame([{'Type':'Autres','Grouping choice':'Propos�','Display label':'Autres',
+        source=pd.DataFrame([{'Type':'Autres','Grouping choice':'Proposé','Display label':'Autres',
             'Metric':'Aucune','Question ID':'Q-1-Couleur','Why':'Aucune'}])
         captured=[]
         def editor(frame,**kwargs):captured.append(frame.copy());return frame.copy()
@@ -27,7 +27,7 @@ class EnglishUiTests(unittest.TestCase):
 
     def test_question_type_display_names_are_english(self):
         from english_ui import text
-        self.assertEqual(text('Candidate scores � own significance � optional gaps'),'Candidate scores � own significance � optional gaps')
+        self.assertEqual(text('Candidate scores · own significance · optional gaps'),'Candidate scores · own significance · optional gaps')
         self.assertEqual(choice('Autres'),'Project-specific')
         self.assertEqual(choice('Bipolaire'),'Bipolar')
         self.assertEqual(choice('Listing'),'Listing')
@@ -41,9 +41,21 @@ class EnglishUiTests(unittest.TestCase):
     def test_advanced_product_and_file_checks_are_in_english(self):
         source = (Path(__file__).resolve().parents[1] / 'smart_ui.py').read_text(encoding='utf-8')
         for legacy_label in (
-            'Contr�le des fichiers et des comparaisons',
+            'Contrôle des fichiers et des comparaisons',
             'Quel nom veux-tu afficher dans les toplines ?',
-            'T�l�charger mes toplines',
+            'Télécharger mes toplines',
         ):
             self.assertNotIn(legacy_label, source)
 
+    def test_streamlit_alert_icons_and_visible_separators_are_transport_safe(self):
+        root = Path(__file__).resolve().parents[1]
+        source = "\n".join(
+            (root / name).read_text(encoding='utf-8')
+            for name in ('app.py', 'smart_ui.py', 'metric_editor.py', 'question_editor.py')
+        )
+        self.assertNotIn('icon="?"', source)
+        self.assertNotIn('icon="✨"', source)
+        self.assertNotIn(' · ', source)
+        self.assertNotIn(' � ', source)
+        self.assertIn('icon=":material/check_circle:"', source)
+        self.assertIn('page_icon=":material/bar_chart:"', source)

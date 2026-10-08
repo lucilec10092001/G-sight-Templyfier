@@ -62,7 +62,7 @@ def render_type_metric_editor(rows, key, revision, commit=None):
                 'Toutes les questions de ce type',
             )
             if commit is not None:
-                skipped = sum(item['R?sultat'].startswith('Inchang?e') for item in preview)
+                skipped = sum(item['R�sultat'].startswith('Inchang�e') for item in preview)
                 commit(
                     changed,
                     f'Metric recipe applied to {type_display}; '
@@ -87,8 +87,8 @@ def render_metric_editor(rows, key, revision, commit):
     row=by_id[selected_id]
     qkey=hashlib.sha1(selected_id.encode()).hexdigest()[:12]
     type_display=TEXT.get(row['Type'],row['Type'])
-    st.caption(f"Detected type: {type_display} � {len(row['Selected metrics'])} result row(s) will be shown in Excel")
-    st.caption(f"Source question: {selected_id} � {len(row['Available metric list'])} source metrics available")
+    st.caption(f"Detected type: {type_display} | {len(row['Selected metrics'])} result row(s) will be shown in Excel")
+    st.caption(f"Source question: {selected_id} | {len(row['Available metric list'])} source metrics available")
     type_help={
         'Standard':'Standard scale: the suggested recipe usually contains Mean, Top Box, Top 2 Boxes and Bottom 2 Boxes. You can add or remove any available box.',
         'Strength':'Strength scale: keep the individual response levels that explain whether the product is too weak, just right or too strong.',
@@ -173,7 +173,7 @@ def render_metric_editor(rows, key, revision, commit):
         with st.container(border=True):
             st.markdown('**Check the grouped change**')
             st.dataframe(pd.DataFrame(pending['preview']),hide_index=True,width='stretch',height=min(330,38+35*len(pending['preview'])))
-            skipped=sum(p['R�sultat'].startswith('Inchang�e') for p in pending['preview'])
+            skipped=sum(p['Résultat'].startswith('Inchangée') for p in pending['preview'])
             if skipped:st.warning(f'{skipped} question(s) were left unchanged because no complete, safe match was available.')
             st.caption('No other question will change. Generation stays paused until you confirm or cancel this change.')
             with st.container(horizontal=True):
@@ -183,4 +183,3 @@ def render_metric_editor(rows, key, revision, commit):
                 if st.button('Cancel grouped change',key=f'cancel_metric_batch_{key}'):
                     st.session_state.pop(pending_key,None)
                     st.session_state[f'editor_refresh_{key}']=True
-
