@@ -48,7 +48,7 @@ def _question_content_signature(frame):
 
 def _support_code(phase: str, file_key: str, exc: Exception) -> str:
     """Create a deterministic, data-free reference for support conversations."""
-    payload = f"v74|{phase}|{file_key}|{type(exc).__name__}|{exc}"
+    payload = f"v75|{phase}|{file_key}|{type(exc).__name__}|{exc}"
     return "TMP-" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:10].upper()
 
 
@@ -61,7 +61,7 @@ def _show_safe_error(phase: str, file_key: str, exc: Exception) -> None:
             "No workbook was produced."
         )
     st.caption(
-        f"Support code: `{_support_code(phase, file_key, exc)}` — share this code with the Templyfier owner."
+        f"Support code: `{_support_code(phase, file_key, exc)}` - share this code with the Templyfier owner."
     )
 
 
@@ -82,7 +82,7 @@ def _step(stage, title, hint):
 def render_smart_mode():
     with st.sidebar:
         st.subheader("Your journey")
-        st.markdown("[1 · Add files](#etape-upload)\n\n[2 · Confirm setup](#etape-setup)\n\n[3 · Review questions](#etape-questions)\n\n[4 · Generate](#etape-generate)")
+        st.markdown("[1 � Add files](#etape-upload)\n\n[2 � Confirm setup](#etape-setup)\n\n[3 � Review questions](#etape-questions)\n\n[4 � Generate](#etape-generate)")
         navigation_status = st.empty()
         sidebar_generate_slot = st.empty()
         navigation_status.progress(.1, text="Start by adding the study files")
@@ -121,10 +121,10 @@ def render_smart_mode():
     state_key = f"smart_state_{key}"
     if state_key not in st.session_state:
         try:
-            with st.spinner("Reading the study files and preparing the review…"):
+            with st.spinner("Reading the study files and preparing the review."):
                 info = inspect_smart_package([(item.name, item.getvalue()) for item in exports])
                 question_rows = [proposal_to_row(item) for item in info.questions]
-                result_inputs = [item for item in info.inputs if item.role == "Résultats"] or list(info.inputs)
+                result_inputs = [item for item in info.inputs if item.role == "R�sultats"] or list(info.inputs)
                 cmr_matches = match_cmr_products(
                     result_inputs[0].product_keys, info.product_names, cmr_upload.getvalue()
                 )
@@ -147,13 +147,13 @@ def render_smart_mode():
                     for item in result_inputs
                 ],
                 "Nom de l'onglet": [item.split_name for item in result_inputs],
-                "Benchmark détecté": [
-                    " · ".join(item.comparison_codes)
-                    or " · ".join(key for key in item.product_keys if key in cmr_benchmark_keys)
-                    or "—"
+                "Benchmark d�tect�": [
+                    " � ".join(item.comparison_codes)
+                    or " � ".join(key for key in item.product_keys if key in cmr_benchmark_keys)
+                    or "-"
                     for item in result_inputs
                 ],
-                "Bases": [" · ".join("?" if n is None else str(n) for n in item.counts) for item in result_inputs],
+                "Bases": [" � ".join("?" if n is None else str(n) for n in item.counts) for item in result_inputs],
                 "Split detection": [item.split_detection for item in result_inputs],
             }),
             "settings": {},
@@ -166,7 +166,7 @@ def render_smart_mode():
     info = state["info"]
     settings = state["settings"]
 
-    result_inputs = [item for item in info.inputs if item.role == "Résultats"] or list(info.inputs)
+    result_inputs = [item for item in info.inputs if item.role == "R�sultats"] or list(info.inputs)
     if "Source" not in state["splits"].columns:
         state["splits"]["Source"] = [
             f"{item.filename} / {item.source_sheet}"
@@ -220,7 +220,7 @@ def render_smart_mode():
         if saved_mode in {"combined", "auto_columns", "benchmark_columns"}
         else "One worksheet per benchmark",
         key=f"smart_benchmark_layout_{key}",
-        help="Side by side keeps every benchmark reading on one split worksheet. The second option creates a split × benchmark worksheet.",
+        help="Side by side keeps every benchmark reading on one split worksheet. The second option creates a split � benchmark worksheet.",
     )
     format_cols = st.columns(2)
     mean_decimals = format_cols[0].segmented_control(
@@ -270,7 +270,7 @@ def render_smart_mode():
             for position in cmr_benchmark_positions(state.get("cmr_matches", ()))
         ]
     if detected_codes:
-        st.caption("Benchmarks detected automatically: " + " · ".join(detected_codes))
+        st.caption("Benchmarks detected automatically: " + " � ".join(detected_codes))
     else:
         st.warning("No benchmark could be identified automatically in these outputs.", icon=":material/warning:")
     unmatched_cmr = [item for item in state.get("cmr_matches", ()) if item.score < 80]
@@ -285,15 +285,15 @@ def render_smart_mode():
     st.markdown("**Splits shown in Excel**")
     split_table = st.data_editor(
         state["splits"], hide_index=True, width="stretch",
-        disabled=["Fichier", "Source", "Benchmark détecté", "Bases", "Split detection"],
-        column_order=["Nom de l'onglet", "Source", "Benchmark détecté", "Bases"],
+        disabled=["Fichier", "Source", "Benchmark d�tect�", "Bases", "Split detection"],
+        column_order=["Nom de l'onglet", "Source", "Benchmark d�tect�", "Bases"],
         column_config={
             "Nom de l'onglet": st.column_config.TextColumn("Split name shown in Excel", required=True, width="large"),
             "Source": st.column_config.TextColumn(
                 "G-Sight source", width="large",
                 help="The uploaded file, followed by the worksheet when several result sheets are inside one workbook.",
             ),
-            "Benchmark détecté": st.column_config.TextColumn("Benchmark found", width="large"),
+            "Benchmark d�tect�": st.column_config.TextColumn("Benchmark found", width="large"),
             "Bases": st.column_config.TextColumn("Base", width="medium"),
             "Fichier": None,
             "Split detection": None,
@@ -333,25 +333,25 @@ def render_smart_mode():
         f"{index + 1}. {name[:70]}": index
         for index, name in enumerate(info.product_names)
     }
-    result_inputs = [item for item in info.inputs if item.role == "Résultats"] or list(info.inputs)
+    result_inputs = [item for item in info.inputs if item.role == "R�sultats"] or list(info.inputs)
     canonical_keys = result_inputs[0].product_keys
     cmr_matches = state.get("cmr_matches", ())
     saved_product_labels = settings.get("product_labels", [])
     saved_product_subtitles = settings.get("product_subtitles", [])
-    with st.expander("Clean product headers — optional", expanded=False):
+    with st.expander("Product names shown in Excel - optional", expanded=False):
         st.caption(
-            "Le code stable sert au rapprochement technique. Le nom et la ligne complémentaire servent uniquement au rendu Excel."
+            "Templyfier uses the product code for matching. The displayed name and optional subtitle only change the Excel header."
         )
         if cmr_matches:
             cmr_name_options = {
-                "Fantasy name (recommandé)": "fantasy",
+                "Fantasy name (recommended)": "fantasy",
                 "Formula description": "description",
                 "Formula code": "formula",
-                "Conserver le nom G-Sight": "source",
+                "Keep the G-Sight name": "source",
             }
             saved_cmr_mode = settings.get("cmr_name_mode", "fantasy")
             cmr_name_choice = st.radio(
-                "Quel nom veux-tu afficher dans les toplines ?",
+                "Product name to show in Excel",
                 list(cmr_name_options),
                 horizontal=True,
                 index=list(cmr_name_options.values()).index(saved_cmr_mode)
@@ -359,7 +359,7 @@ def render_smart_mode():
                 key=f"smart_cmr_name_mode_{key}",
             )
             cmr_name_mode = cmr_name_options[cmr_name_choice]
-            st.caption("Le choix est appliqué à tous les produits, puis reste modifiable ligne par ligne dans Nom affiché.")
+            st.caption("This choice is applied to every product. You can still edit each displayed name below.")
         else:
             cmr_name_mode = "source"
         product_rows = []
@@ -373,12 +373,12 @@ def render_smart_mode():
             product_row = {
                 "Code stable": code,
                 "Nom source": source_name,
-                "Nom affiché": (
+                "Displayed name": (
                     cmr_default
                     if cmr_matches
                     else saved_product_labels[index] if index < len(saved_product_labels) else source_name
                 ),
-                "Ligne complémentaire / formule": (
+                "Optional subtitle / formula": (
                     saved_product_subtitles[index]
                     if index < len(saved_product_subtitles)
                     else ""
@@ -386,38 +386,38 @@ def render_smart_mode():
             }
             if cmr_matches:
                 product_row.update({
-                    "Valeur CMR sélectionnée": cmr_default,
-                    "Match CMR": cmr_match.matched_by if cmr_match else "—",
-                    "Confiance CMR": cmr_match.confidence if cmr_match else "—",
+                    "Selected CMR value": cmr_default,
+                    "CMR match": cmr_match.matched_by if cmr_match else "-",
+                    "CMR confidence": cmr_match.confidence if cmr_match else "-",
                 })
             product_rows.append(product_row)
         disabled_product_columns = ["Code stable", "Nom source"]
         product_column_config = {
             "Code stable": st.column_config.TextColumn(width="small"),
             "Nom source": st.column_config.TextColumn(width="large"),
-            "Nom affiché": st.column_config.TextColumn(required=True, width="large"),
-            "Ligne complémentaire / formule": st.column_config.TextColumn(width="large"),
+            "Displayed name": st.column_config.TextColumn(required=True, width="large"),
+            "Optional subtitle / formula": st.column_config.TextColumn(width="large"),
         }
         if cmr_matches:
             disabled_product_columns.extend(
-                ["Valeur CMR sélectionnée", "Match CMR", "Confiance CMR"]
+                ["Selected CMR value", "CMR match", "CMR confidence"]
             )
             product_column_config.update({
-                "Valeur CMR sélectionnée": st.column_config.TextColumn(width="large"),
-                "Match CMR": st.column_config.TextColumn(width="medium"),
-                "Confiance CMR": st.column_config.TextColumn(width="small"),
+                "Selected CMR value": st.column_config.TextColumn(width="large"),
+                "CMR match": st.column_config.TextColumn(width="medium"),
+                "CMR confidence": st.column_config.TextColumn(width="small"),
             })
         product_columns = ["Code stable", "Nom source"]
         if cmr_matches:
-            product_columns.extend(["Valeur CMR sélectionnée", "Match CMR", "Confiance CMR"])
-        product_columns.extend(["Nom affiché", "Ligne complémentaire / formule"])
+            product_columns.extend(["Selected CMR value", "CMR match", "CMR confidence"])
+        product_columns.extend(["Displayed name", "Optional subtitle / formula"])
         product_table = st.data_editor(
             pd.DataFrame(product_rows, columns=product_columns),
             hide_index=True,
             width="stretch",
             disabled=disabled_product_columns,
             column_config=product_column_config,
-            column_order=['Nom affiché','Ligne complémentaire / formule','Code stable','Nom source'],
+            column_order=['Displayed name','Optional subtitle / formula','Code stable','Nom source'],
             key=f"smart_product_headers_{key}_{cmr_name_mode}",
         )
         if cmr_matches:
@@ -426,12 +426,12 @@ def render_smart_mode():
                 for item in cmr_matches
             )
             st.success(
-                f"{matched_count}/{len(cmr_matches)} produit(s) rapproché(s) automatiquement de la CMR. "
-                "Les noms proposés sont préremplis, mais la colonne Nom affiché reste la décision finale du CMI.",
-                icon="✨",
+                f"{matched_count}/{len(cmr_matches)} product(s) matched automatically with the CMR. "
+                "Suggested names are prefilled, and the Displayed name column remains editable.",
+                icon="?",
             )
-    clean_product_labels = product_table["Nom affiché"].fillna("").astype(str).str.strip().tolist()
-    clean_product_subtitles = product_table["Ligne complémentaire / formule"].fillna("").astype(str).str.strip().tolist()
+    clean_product_labels = product_table["Displayed name"].fillna("").astype(str).str.strip().tolist()
+    clean_product_subtitles = product_table["Optional subtitle / formula"].fillna("").astype(str).str.strip().tolist()
     product_headers_ready = all(clean_product_labels)
     normalized_product_headers = [
         (_normal(label), _normal(subtitle))
@@ -442,7 +442,7 @@ def render_smart_mode():
         if normalized_product_headers.count(pair) > 1
     }
     if not product_headers_ready:
-        st.error("Chaque produit doit conserver un nom affiché.")
+        st.error("Every product needs a displayed name.")
     if duplicate_product_headers:
         st.error(
             "Two or more products would have the same Excel header. Give them distinct displayed names "
@@ -473,7 +473,7 @@ def render_smart_mode():
             st.caption(
                 f"Automatic benchmark detection ({'G-Sight' if benchmark_source == 'g-sight' else 'CMR'}): "
                 f"{benchmark_count} benchmark(s) - "
-                + " · ".join(benchmark_short_labels)
+                + " � ".join(benchmark_short_labels)
             )
         else:
             st.error("Automatic benchmark detection failed. Check that each G-Sight output contains its comparison columns.")
@@ -627,7 +627,7 @@ def render_smart_mode():
                 if position not in used_positions
             ]
             if unused:
-                st.caption("Products excluded from this split: " + " · ".join(unused))
+                st.caption("Products excluded from this split: " + " � ".join(unused))
             if mapping_error:
                 st.error(mapping_error)
             mapping_buttons = st.columns(2)
@@ -661,20 +661,20 @@ def render_smart_mode():
         if test_type=='Monadic' and benchmark_sheet_mode in {'auto_exports','auto_columns'}:
             split_count=len({_normal(name) for name in split_table["Nom de l'onglet"].astype(str) if str(name).strip()})
             expected=split_count*len(benchmark_positions)
-            matched=sum(row['Contrôle']=='Prêt' for row in audit['rows'])
-            st.success(f'Input plan ready — {split_count} split(s) × {len(benchmark_positions)} benchmark(s): {matched}/{expected} exports matched.')
+            matched=sum(row['Contr�le']=='Pr�t' for row in audit['rows'])
+            st.success(f'Input plan ready - {split_count} split(s) � {len(benchmark_positions)} benchmark(s): {matched}/{expected} exports matched.')
         else:
-            st.success(f'Input plan ready — {len(audit["rows"])} result file(s) checked.')
+            st.success(f'Input plan ready - {len(audit["rows"])} result file(s) checked.')
     else:
-        st.error(f'Input plan needs attention — {len(audit["blockers"])} issue(s) must be corrected before generation.')
-    with st.expander("Contrôle des fichiers et des comparaisons", expanded=not audit["ready"]):
+        st.error(f'Input plan needs attention - {len(audit["blockers"])} issue(s) must be corrected before generation.')
+    with st.expander("File and comparison checks", expanded=not audit["ready"]):
         st.dataframe(pd.DataFrame(audit["rows"]), hide_index=True, width="stretch")
         if audit["blockers"]:
-            st.error("\n\n".join(f"• {message}" for message in audit["blockers"]))
+            st.error("\n\n".join(f" {message}" for message in audit["blockers"]))
         elif audit["warnings"]:
-            st.warning("\n\n".join(f"• {message}" for message in audit["warnings"]))
+            st.warning("\n\n".join(f" {message}" for message in audit["warnings"]))
         else:
-            st.success("Toutes les combinaisons demandées sont présentes et les plans produits sont cohérents.", icon="✅")
+            st.success("All requested combinations are present and the product plans are consistent.", icon="?")
 
     summary_scope = "total" if include_kpi_summary else "none"
     summary_metric_strategy = "priority"
@@ -729,7 +729,7 @@ def render_smart_mode():
     kept = question_table[question_table["Keep"].astype(bool) & question_table["Type"].ne("Delete")]
     names = split_table["Nom de l'onglet"].astype(str).str.strip()
     duplicates = names[names.str.casefold().duplicated(keep=False)].tolist()
-    result_inputs = [item for item in info.inputs if item.role == "Résultats"] or list(info.inputs)
+    result_inputs = [item for item in info.inputs if item.role == "R�sultats"] or list(info.inputs)
     auto_consolidation = test_type == "Monadic" and benchmark_sheet_mode in {"auto_exports","auto_columns"}
     products_match = all(
         (set(item.product_keys) == set(result_inputs[0].product_keys) if auto_consolidation else item.product_keys == result_inputs[0].product_keys)
@@ -770,16 +770,16 @@ def render_smart_mode():
                                      {p.question_id: p.metrics for p in info.questions}, names.tolist())
     pending_metrics = bool(st.session_state.get(f'metric_batch_{key}'))
     if question_audit['blockers']:
-        st.error(f"{len({i['Question ID'] for i in question_audit['blockers']})} question(s) à corriger avant export : métriques, libellés ou filtre de splits.")
-        with st.expander('Détail des corrections nécessaires', expanded=True):
+        st.error(f"{len({i['Question ID'] for i in question_audit['blockers']})} question(s) need a correction before export: metrics, names or split mapping.")
+        with st.expander('Corrections needed', expanded=True):
             st.dataframe(pd.DataFrame(question_audit['blockers']).drop(columns=['Code']), hide_index=True, width='stretch')
     if pending_metrics:
-        st.warning('Un changement groupé de métriques attend ta décision dans l’éditeur. Confirme-le ou abandonne son aperçu avant de générer ou télécharger.')
+        st.warning('A grouped metric change is waiting for confirmation. Confirm or cancel it before generating the file.')
 
     verified = True
 
     if duplicates and not auto_consolidation:
-        st.error(f"Noms d’onglets en double : {', '.join(sorted(set(duplicates)))}")
+        st.error(f"Duplicate worksheet names: {', '.join(sorted(set(duplicates)))}")
     if test_type == "Monadic" and not products_match:
         st.error("Le plan produits n'est pas identique dans tous les exports.")
     if test_type == "Paired" and not paired_plans_valid:
@@ -788,15 +788,15 @@ def render_smart_mode():
             "Open 'Fix the automatic pair mapping' above to correct it."
         )
     if not empty_standard_recipes.empty:
-        st.error(f"{len(empty_standard_recipes)} question(s) gardée(s) n’ont aucune métrique cochée.")
+        st.error(f"{len(empty_standard_recipes)} kept question(s) have no selected metric.")
     incomplete_comparisons = [
         item.split_name for item in result_inputs
         if len(item.comparison_codes) < benchmark_count
     ] if test_type == "Monadic" and not auto_consolidation else []
     if incomplete_comparisons:
         st.info(
-            "Comparaisons sans colonne Delta dédiée pour : " + ", ".join(incomplete_comparisons)
-            + ". Le Templyfier utilisera les lettres G-Sight, benchmark par benchmark, pour restituer la significativité."
+            "No dedicated Delta column was found for: " + ", ".join(incomplete_comparisons)
+            + ". Templyfier will use the G-Sight significance letters for each benchmark."
         )
 
     ready = (
@@ -819,10 +819,10 @@ def render_smart_mode():
         st.success('Ready to generate. Your reviewed choices will be used in the Excel workbook.')
     else:
         next_steps=[]
-        if pending_metrics:next_steps.append('Confirm or cancel the pending metric batch in step 2.')
-        if not question_audit['ready'] or not empty_standard_recipes.empty:next_steps.append('In step 2, correct the marked questions and keep at least one source metric for each retained question.')
+        if pending_metrics:next_steps.append('In Review questions, confirm or cancel the pending metric change.')
+        if not question_audit['ready'] or not empty_standard_recipes.empty:next_steps.append('In Review questions, correct the marked rows and keep at least one source metric for each retained question.')
         if not audit['ready'] and test_type != 'Paired':next_steps.append('In Advanced options, open File and comparison checks and correct the reported issue.')
-        if not names.ne('').all() or (duplicates and not auto_consolidation):next_steps.append('In Step 0, provide valid split names; manual split names must be unique.')
+        if not names.ne('').all() or (duplicates and not auto_consolidation):next_steps.append('In Confirm setup, provide a unique name for every split.')
         if not product_headers_ready:next_steps.append('In Advanced options, give every product a display name.')
         if duplicate_product_headers:next_steps.append('In Advanced options, distinguish duplicate product headers.')
         if test_type=='Monadic' and (not products_match or benchmark_count==0 or not all(benchmark_short_labels)):next_steps.append('In Advanced options, check the product plan, select a benchmark and name each reading.')
@@ -836,97 +836,6 @@ def render_smart_mode():
         + planned_topline_sheets
         + planned_summary_sheets
     )
-    with st.container(border=True):
-        st.markdown("### Preview the final Excel")
-        st.caption(
-            "Check the workbook structure before generation. Scores are shown as dashes "
-            "because this preview never fabricates results."
-        )
-        if not ready:
-            st.warning(
-                "This is a preliminary preview. Items marked above must still be corrected "
-                "before the Excel file can be generated.",
-                icon=":material/visibility:",
-            )
-        preview_sheet = st.selectbox(
-            "Worksheet to preview",
-            planned_workbook_sheets or ["No worksheet available"],
-            index=(
-                planned_workbook_sheets.index(planned_topline_sheets[0])
-                if planned_topline_sheets and planned_topline_sheets[0] in planned_workbook_sheets
-                else 0
-            ),
-            key=f"excel_preview_sheet_{key}",
-        )
-        st.caption(
-            f"Planned workbook: {len(planned_workbook_sheets)} worksheet(s) · "
-            + " · ".join(planned_workbook_sheets[:8])
-            + (" · …" if len(planned_workbook_sheets) > 8 else "")
-        )
-        if preview_sheet == "Screener(s)":
-            st.info(
-                "The Screener worksheet(s) will be copied from the G-Sight source and kept "
-                "separate from the topline reading."
-            )
-        elif preview_sheet in planned_summary_sheets:
-            summary_preview = pd.DataFrame([
-                {
-                    "KPI": row.get("Summary label") or row.get("Display label"),
-                    "Result used": " · ".join(row.get("Selected metrics", [])[:2]),
-                }
-                for row in question_table.to_dict("records")
-                if row.get("Keep") and row.get("KPI Summary")
-            ])
-            for label in (benchmark_short_labels or clean_product_labels):
-                summary_preview[str(label)] = "—"
-            if summary_preview.empty:
-                st.info("Select at least one KPI in the question table to populate this worksheet.")
-            else:
-                st.dataframe(summary_preview, hide_index=True, width="stretch", height=300)
-        elif preview_sheet in planned_topline_sheets:
-            preview_split = next(
-                (
-                    split for split in sorted(unique_splits, key=len, reverse=True)
-                    if preview_sheet == split or preview_sheet.startswith(f"{split} vs ")
-                ),
-                unique_splits[0] if unique_splits else None,
-            )
-            structure = preview_rows(
-                question_table.to_dict("records"),
-                split_name=preview_split,
-            )
-            visual_rows = pd.DataFrame([
-                {
-                    "Section": row.get("Section", ""),
-                    "Variable shown in Excel": row.get("Variable clean", ""),
-                    "Result shown in Excel": row.get("Item / métrique", ""),
-                }
-                for row in structure[:20]
-            ])
-            used_headers = set(visual_rows.columns)
-            for index, label in enumerate(clean_product_labels, 1):
-                header = str(label or f"Product {index}")
-                if header in used_headers:
-                    header = f"{header} ({index})"
-                used_headers.add(header)
-                visual_rows[header] = "—"
-            if show_difference:
-                delta_labels = benchmark_short_labels or ["benchmark"]
-                for index, label in enumerate(delta_labels, 1):
-                    header = f"Δ vs {label}" if test_type == "Monadic" else f"Delta {index}"
-                    if header in used_headers:
-                        header = f"{header} ({index})"
-                    used_headers.add(header)
-                    visual_rows[header] = "—"
-            if visual_rows.empty:
-                st.info("No retained question currently applies to this worksheet.")
-            else:
-                st.dataframe(visual_rows, hide_index=True, width="stretch", height=420)
-                if len(structure) > len(visual_rows):
-                    st.caption(
-                        f"First {len(visual_rows)} of {len(structure)} result rows shown. "
-                        "The generated worksheet will contain the complete selection."
-                    )
     output_name = st.text_input("Final file name", "Toplines_clean.xlsx", key=f"smart_output_{key}")
     if not output_name.lower().endswith(".xlsx"):
         output_name += ".xlsx"
@@ -947,8 +856,8 @@ def render_smart_mode():
 
     if quick_generate or sidebar_generate:
         try:
-            with st.status("Création des toplines…", expanded=True) as status:
-                st.write("Application des décisions métier validées")
+            with st.status("Creating the toplines.", expanded=True) as status:
+                st.write("Applying the reviewed choices")
                 result_filenames = set(split_table["Fichier"].tolist())
                 result_exports = [(item.name, item.getvalue()) for item in exports if item.name in result_filenames]
                 result, report = build_smart_toplines(
@@ -977,8 +886,8 @@ def render_smart_mode():
                     gap_positive_points=applied_positive_points,
                     gap_negative_points=applied_negative_points,
                 )
-                st.write("Calcul des gaps, des significativités et du KPI Summary")
-                status.update(label="Toplines terminées", state="complete", expanded=False)
+                st.write("Calculating gaps, significance and the KPI Summary")
+                status.update(label="Toplines ready", state="complete", expanded=False)
             st.session_state[f"smart_result_{key}"] = result
             st.session_state[f"smart_report_{key}"] = report
         except TemplyfierError as exc:
@@ -990,29 +899,29 @@ def render_smart_mode():
         generated_payload = st.session_state[f"smart_result_{key}"]
         report = st.session_state[f"smart_report_{key}"]
         st.success(
-            f"Fichier prêt : {report['test_type']}, {report['questions']} questions sélectionnées et {len(report['splits'])} onglets générés.",
-            icon="✅",
+            f"File ready: {report['test_type']}, {report['questions']} selected questions and {len(report['splits'])} generated worksheets.",
+            icon="?",
         )
         if report.get("missing_benchmark_exports"):
             st.warning(
-                "Combinaisons non générées faute d’export correspondant : "
-                + " · ".join(report["missing_benchmark_exports"])
+                "Combinations not generated because no matching export was found: "
+                + " � ".join(report["missing_benchmark_exports"])
             )
         if report.get('missing_panel_metrics'):
             st.warning(f"{len(report['missing_panel_metrics'])} source metric(s) are missing from individual benchmark readings. Their cells are blank and annotated in Excel; no missing score or gap has been invented.")
-        with st.expander("Voir le résumé de la génération"):
+        with st.expander("View generation summary"):
             summary_cols = st.columns(4)
-            summary_cols[0].metric("Questions gardées", report.get("questions", 0))
-            summary_cols[1].metric("Questions écartées", report.get("questions_deleted", 0))
-            summary_cols[2].metric("Lignes écrites", report.get("data_rows_written", 0))
+            summary_cols[0].metric("Questions kept", report.get("questions", 0))
+            summary_cols[1].metric("Questions excluded", report.get("questions_deleted", 0))
+            summary_cols[2].metric("Rows written", report.get("data_rows_written", 0))
             summary_cols[3].metric("Produits", report.get("products", 0))
             st.caption(
-                f"Type de test : {report.get('test_type', '—')} · "
-                f"Splits générés : {len(report.get('splits', []))} · "
-                f"Synthèses KPI : {len(report.get('summary_sheets', []))}"
+                f"Study design: {report.get('test_type', '-')} � "
+                f"Generated splits: {len(report.get('splits', []))} � "
+                f"KPI summaries: {len(report.get('summary_sheets', []))}"
             )
         st.download_button(
-            "⬇️ Télécharger mes toplines",
+            "?? Download my toplines",
             data=generated_payload,
             file_name=Path(output_name).name,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1025,3 +934,4 @@ def render_smart_mode():
     memory_refresh = st.session_state.pop('memory_refresh_requested', False)
     if editor_refresh or memory_refresh:
         st.rerun()
+

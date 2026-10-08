@@ -11,7 +11,7 @@ from templyfier.server_storage import server_mode
 
 st.set_page_config(
     page_title="G-Sight Templyfier",
-    page_icon="📊",
+    page_icon="??",
     layout="wide",
     initial_sidebar_state="auto",
 )
@@ -19,9 +19,9 @@ st.set_page_config(
 install()
 initialize_access()
 privacy_text = (
-    "Internal server processing · files are not sent to an external AI service"
+    "Internal server processing � files are not sent to an external AI service"
     if server_mode()
-    else "Session-only processing · files are not sent to an external AI service"
+    else "Session-only processing � files are not sent to an external AI service"
 )
 
 st.markdown(
@@ -44,9 +44,9 @@ st.markdown(
       div[data-testid="stButton"] button[kind="primary"], div[data-testid="stDownloadButton"] button {min-height:3rem; font-weight:700; border-radius:12px;}
     </style>
     <div class="hero">
-      <h1>G-Sight Templyfier <span style="font-size:.85rem;opacity:.75">v74</span></h1>
+      <h1>G-Sight Templyfier <span style="font-size:.85rem;opacity:.75">v75</span></h1>
       <p>Turn your G-Sight outputs into review-ready Excel toplines.</p>
-      <span class="privacy">🔒 PRIVACY_TEXT</span>
+      <span class="privacy">?? PRIVACY_TEXT</span>
     </div>
     """.replace("PRIVACY_TEXT", privacy_text),
     unsafe_allow_html=True,
@@ -54,3 +54,4 @@ st.markdown(
 
 render_onboarding()
 render_smart_mode()
+
