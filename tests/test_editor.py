@@ -136,16 +136,17 @@ class EditorTests(unittest.TestCase):
                 include_screeners=False,
             )
 
-    def test_duplicate_final_product_headers_are_rejected(self):
+    def test_duplicate_final_product_headers_are_allowed_as_separate_positions(self):
         rows = export_rows([self.rows[0]])
-        with self.assertRaisesRegex(TemplyfierError, "same displayed name and subtitle"):
-            build_smart_toplines(
-                [("test.xlsx", self.raw)], rows,
-                split_names=["TOTAL"], benchmark_positions=[0], standard_metrics=AGG,
-                include_screeners=False,
-                product_labels=["Same name", "Same name"],
-                product_subtitles=["", ""],
-            )
+        data, _ = build_smart_toplines(
+            [("test.xlsx", self.raw)], rows,
+            split_names=["TOTAL"], benchmark_positions=[0], standard_metrics=AGG,
+            include_screeners=False,
+            product_labels=["Same name", "Same name"],
+            product_subtitles=["", ""],
+        )
+        sheet = load_workbook(BytesIO(data), data_only=False).active
+        self.assertEqual([sheet.cell(3, col).value for col in (3, 5)], ["Same name", "Same name"])
 
     def test_percentage_gaps_are_points_with_configurable_highlights(self):
         rows = export_rows([self.rows[0]])

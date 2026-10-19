@@ -108,6 +108,28 @@ class ConsolidatedPairedTests(unittest.TestCase):
         self.assertEqual((output["G7"].value, output["H7"].value), (5.0, 4.8))
         self.assertEqual(output["I7"].value, '=IF(COUNT(H7,G7)<2,"",H7-G7)')
 
+    def test_repeated_product_code_in_distinct_paired_positions_is_allowed(self):
+        workbook = load_workbook(BytesIO(self.source_bytes()))
+        workbook.remove(workbook["BOOST"])
+        total = workbook["TOTAL"]
+        total["C4"] = "50 - SHARED"
+        total["E4"] = "50 - SHARED"
+        payload = BytesIO()
+        workbook.save(payload)
+        raw = payload.getvalue()
+        info = inspect_smart_package([("repeated paired.xlsx", raw)])
+        self.assertEqual(info.inputs[0].product_keys, ("SHARED", "C1", "SHARED", "C2"))
+        rows = [proposal_to_row(item) for item in info.questions]
+        data, report = build_smart_toplines(
+            [("repeated paired.xlsx", raw)], rows,
+            split_names=[info.inputs[0].split_name], benchmark_positions=(),
+            standard_metrics=("Mean", "Top Box", "Top 2 Boxes", "Bottom 2 Boxes"),
+            include_screeners=False, test_type="Paired",
+        )
+        output = load_workbook(BytesIO(data), data_only=False).active
+        self.assertEqual(report["pairs"], 2)
+        self.assertEqual((output["C7"].value, output["G7"].value), (5.0, 4.8))
+
 
 if __name__ == "__main__":
     unittest.main()

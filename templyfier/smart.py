@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import copy
+from collections import Counter
 from dataclasses import asdict, dataclass, replace
 from io import BytesIO
 import json
@@ -161,6 +162,24 @@ def _paired_positions(
     ]
 
 
+def _occurrence_position_map(
+    canonical_keys: Sequence[str], source_keys: Sequence[str]
+) -> dict[int, int]:
+    """Map repeated product codes by occurrence instead of collapsing to the first column."""
+    if Counter(source_keys) != Counter(canonical_keys):
+        raise TemplyfierError("Le plan produits n'est pas identique dans tous les exports.")
+    positions: dict[str, list[int]] = {}
+    for position, key in enumerate(source_keys):
+        positions.setdefault(key, []).append(position)
+    used: dict[str, int] = {}
+    mapping: dict[int, int] = {}
+    for canonical_position, key in enumerate(canonical_keys):
+        occurrence = used.get(key, 0)
+        mapping[canonical_position] = positions[key][occurrence]
+        used[key] = occurrence + 1
+    return mapping
+
+
 def audit_input_plan(
     info: SmartPackageInfo,
     split_names: Sequence[str],
@@ -202,7 +221,7 @@ def audit_input_plan(
     for item in inputs:
         same_plan = (
             len(item.product_keys) == len(canonical)
-            and (set(item.product_keys) == set(canonical) if automatic_exports and not paired else item.product_keys == canonical)
+            and (Counter(item.product_keys) == Counter(canonical) if automatic_exports and not paired else item.product_keys == canonical)
         )
         if not paired and not same_plan:
             blockers.append(f"Plan produits différent dans {item.filename}.")
@@ -418,10 +437,10 @@ def parse_cmr_products(source) -> tuple[CmrProduct, ...]:
         if fingerprint in fingerprints:
             continue
         fingerprints.add(fingerprint)
-        for kind, raw_value in (
-            ("CMR code", product.cmr_code),
-            ("Fr-Land ID", re.sub(r"\.0+$", "", _text(product.fr_land_id))),
-        ):
+        # A CMR code identifies one row and must stay unambiguous. Secondary
+        # formula/Fr-Land identifiers may legitimately be shared by several
+        # row-level codes when the same benchmark is reused across pairs.
+        for kind, raw_value in (("CMR code", product.cmr_code),):
             value = re.sub(r"[^a-z0-9]", "", _normal(raw_value))
             if not value:
                 continue
@@ -516,12 +535,18 @@ def match_cmr_products(
                 f"confidence ({', '.join(labels)}). Correct the CMR identifiers before generating toplines."
             )
     assigned_products = {}
-    used_cmr = set()
+    cmr_owner: dict[int, tuple[str, str]] = {}
     for score, product_index, cmr_index, matched_by in sorted(edges, reverse=True):
-        if product_index in assigned_products or cmr_index in used_cmr:
+        if product_index in assigned_products:
+            continue
+        key = re.sub(r"[^a-z0-9]", "", _normal(product_keys[product_index]))
+        source = _normal(product_names[product_index])
+        signature = ("key", key) if key else ("name", source)
+        owner = cmr_owner.get(cmr_index)
+        if owner is not None and owner != signature:
             continue
         assigned_products[product_index] = (catalog[cmr_index], score, matched_by)
-        used_cmr.add(cmr_index)
+        cmr_owner[cmr_index] = signature
 
     matches = []
     for product_index, (key, name) in enumerate(zip(product_keys, product_names)):
@@ -3305,7 +3330,7 @@ def build_smart_toplines(
     if normalized_sheet_mode not in {"combined", "separate", "separate sheets", "auto exports", "automatic exports", "auto"}:
         raise TemplyfierError("Organisation des benchmarks inconnue.")
     canonical_keys = product_keys[0]
-    same_product_sets = all(len(keys) == len(canonical_keys) and set(keys) == set(canonical_keys) for keys in product_keys)
+    same_product_sets = all(Counter(keys) == Counter(canonical_keys) for keys in product_keys)
     if not same_product_sets:
         raise TemplyfierError("Le plan produits n’est pas identique dans tous les exports.")
     if not automatic_exports and any(keys != canonical_keys for keys in product_keys[1:]):
@@ -3317,7 +3342,11 @@ def build_smart_toplines(
     benchmarks = tuple(int(pos) for pos in benchmark_positions)
     if automatic_exports and not benchmarks:
         detected_codes = list(dict.fromkeys(code for codes in comparison_codes_by_sheet for code in codes))
-        benchmarks = tuple(canonical_keys.index(code) for code in detected_codes if code in canonical_keys)
+        detected_code_set = set(detected_codes)
+        benchmarks = tuple(
+            position for position, code in enumerate(canonical_keys)
+            if code in detected_code_set
+        )
     if not benchmarks or any(pos < 0 or pos >= product_count for pos in benchmarks):
         raise TemplyfierError("Benchmark invalide.")
     if len(set(benchmarks)) != len(benchmarks):
@@ -3332,14 +3361,6 @@ def build_smart_toplines(
         raise TemplyfierError("Le nombre de noms produits ne correspond pas au plan produits.")
     if clean_product_subtitles and len(clean_product_subtitles) != product_count:
         raise TemplyfierError("Le nombre de sous-titres produits ne correspond pas au plan produits.")
-    if clean_product_labels:
-        subtitles = clean_product_subtitles or [""] * product_count
-        header_pairs = [(_normal(label), _normal(subtitle)) for label, subtitle in zip(clean_product_labels, subtitles)]
-        if len(set(header_pairs)) != len(header_pairs):
-            raise TemplyfierError(
-                "Two or more products have the same displayed name and subtitle. "
-                "Use distinct Excel product headers before generating."
-            )
     normalized_output_order = _normal(output_sheet_order).replace("_", " ")
     if normalized_output_order not in {"split first", "benchmark first"}:
         raise TemplyfierError("Ordre des onglets inconnu.")
@@ -3424,10 +3445,9 @@ def build_smart_toplines(
             filename = source_filenames[file_index]
             source_sheet = data_sheets[file_index]
             layout = layouts[file_index]
-            source_positions = {
-                canonical_position: product_keys[file_index].index(key)
-                for canonical_position, key in enumerate(canonical_keys)
-            }
+            source_positions = _occurrence_position_map(
+                canonical_keys, product_keys[file_index]
+            )
             product_order = list(active_benchmarks) + [pos for pos in range(product_count) if pos not in active_benchmarks]
             column_blocks: dict[int, dict] = {}
             current_col = 3

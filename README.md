@@ -1,4 +1,4 @@
-# G-Sight Templyfier v77
+# G-Sight Templyfier v78
 
 Templyfier turns G-Sight DataViz outputs into editable Excel toplines for consumer research studies. The interface is in English and the question detection supports English and French source wording. No consumer files or credentials are included in this repository.
 
@@ -49,6 +49,8 @@ Question wording alone never restricts a result to a similarly named split. A KP
 
 For Paired studies, Templyfier first proposes adjacent Benchmark/Candidate pairs automatically. A compact optional mapping opens only when that assumption is unsafe, or when the CMI chooses to adjust it. It supports non-adjacent products, reversed pairs, unused extra products, and one shared benchmark compared with several candidates. Generation remains blocked until every Paired split has a valid mapping; no uncertain pair is silently invented.
 
+Repeated products are supported in Paired, Monadic and CLT studies. The same product code, fragrance or displayed name may occur in several distinct G-Sight positions and remains a separate Excel column each time. Pair-specific CMR codes may also share one Fr-Land ID or formula identifier. Only a genuinely conflicting primary CMR code or an invalid mapping of one physical source column to both sides of the same pair remains blocked.
+
 ## Stages and multilingual projects
 
 All validated result sheets are analysed, so WET, NEAT, DRY and unfamiliar stages can coexist in one source workbook. No question is discarded because its stage is unknown. `Unassigned` questions stay visible and can be mapped directly in the main table to any free-text stage such as Pre-wash, After application or Skin dry-down.
@@ -63,4 +65,4 @@ For an internal server deployment, follow `SERVER_DEPLOYMENT.md`. The current pu
 
 ## Validation
 
-Version 74 adds production-grade CMR ambiguity, product-header, base-quality and error-support safeguards without adding a mandatory user step. See `CHANGES_v75.md` and `VALIDATION_v75.md`.
+Version 78 supports legitimate repeated product positions and shared secondary CMR identifiers without weakening ambiguity checks. See `CHANGES_v78.md` and `VALIDATION_v78.md`.

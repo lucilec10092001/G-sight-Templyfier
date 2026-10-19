@@ -61,6 +61,33 @@ class CmrMatchingTests(unittest.TestCase):
         with self.assertRaisesRegex(TemplyfierError, "CMR ambiguity"):
             parse_cmr_products(self._cmr_bytes(rows))
 
+    def test_shared_fr_land_id_across_pair_specific_cmr_codes_is_allowed(self):
+        rows = [
+            ["H2N", "BNCK-325430", "", "Skip Active Clean", "Benchmark", 325430],
+            ["P4J", "BNCK-325430", "", "Skip Active Clean", "Benchmark", 325430],
+            ["B1V", "BNCK-325430", "", "Skip Active Clean", "Benchmark", 325430],
+        ]
+        products = parse_cmr_products(self._cmr_bytes(rows))
+        self.assertEqual([item.cmr_code for item in products], ["H2N", "P4J", "B1V"])
+        matches = match_cmr_products(
+            ("H2N", "P4J", "B1V"),
+            ("H2N", "P4J", "B1V"),
+            self._cmr_bytes(rows),
+        )
+        self.assertEqual([item.score for item in matches], [100, 100, 100])
+
+    def test_repeated_gsight_position_can_reuse_one_exact_cmr_match(self):
+        cmr = self._cmr_bytes([
+            ["H2N", "BNCK-325430", "", "Skip Active Clean", "Benchmark", 325430],
+        ])
+        matches = match_cmr_products(
+            ("H2N", "H2N"),
+            ("Skip Active Clean", "Skip Active Clean"),
+            cmr,
+        )
+        self.assertEqual([item.score for item in matches], [100, 100])
+        self.assertEqual([item.cmr_code for item in matches], ["H2N", "H2N"])
+
     def test_equal_best_cmr_matches_are_blocked(self):
         rows = [
             ["A26", "SAME123", "Product A", "", "Candidate", ""],

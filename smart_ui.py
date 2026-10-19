@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 import hashlib
 import json
 from pathlib import Path
@@ -48,7 +49,7 @@ def _question_content_signature(frame):
 
 def _support_code(phase: str, file_key: str, exc: Exception) -> str:
     """Create a deterministic, data-free reference for support conversations."""
-    payload = f"v77|{phase}|{file_key}|{type(exc).__name__}|{exc}"
+    payload = f"v78|{phase}|{file_key}|{type(exc).__name__}|{exc}"
     return "TMP-" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:10].upper()
 
 
@@ -444,16 +445,20 @@ def render_smart_mode():
     if not product_headers_ready:
         st.error("Every product needs a displayed name.")
     if duplicate_product_headers:
-        st.error(
-            "Two or more products would have the same Excel header. Give them distinct displayed names "
-            "or formula subtitles before generation."
+        st.caption(
+            "Repeated product names are accepted and remain separate product positions in Excel. "
+            "Add an optional subtitle only if readers need to distinguish the occurrences."
         )
     if test_type == "Monadic":
         comparison_codes = list(dict.fromkeys(
             code for item in result_inputs for code in item.comparison_codes if code in canonical_keys
         ))
         if comparison_codes:
-            detected_positions = [canonical_keys.index(code) for code in comparison_codes]
+            comparison_code_set = set(comparison_codes)
+            detected_positions = [
+                position for position, code in enumerate(canonical_keys)
+                if code in comparison_code_set
+            ]
             benchmark_source = "g-sight"
         else:
             detected_positions = list(cmr_benchmark_positions(cmr_matches))
@@ -732,7 +737,7 @@ def render_smart_mode():
     result_inputs = [item for item in info.inputs if item.role == "Résultats"] or list(info.inputs)
     auto_consolidation = test_type == "Monadic" and benchmark_sheet_mode in {"auto_exports","auto_columns"}
     products_match = all(
-        (set(item.product_keys) == set(result_inputs[0].product_keys) if auto_consolidation else item.product_keys == result_inputs[0].product_keys)
+        (Counter(item.product_keys) == Counter(result_inputs[0].product_keys) if auto_consolidation else item.product_keys == result_inputs[0].product_keys)
         for item in result_inputs
     )
     # The input audit validates either the safe adjacent-pair default or the
@@ -809,7 +814,6 @@ def render_smart_mode():
         and (test_type == "Monadic" or paired_plans_valid)
         and empty_standard_recipes.empty
         and product_headers_ready
-        and not duplicate_product_headers
         and (summary_scope == "none" or not summary_kpis.empty)
         and audit["ready"]
         and question_audit["ready"]
@@ -824,7 +828,6 @@ def render_smart_mode():
         if not audit['ready'] and test_type != 'Paired':next_steps.append('In Advanced options, open File and comparison checks and correct the reported issue.')
         if not names.ne('').all() or (duplicates and not auto_consolidation):next_steps.append('In Confirm setup, provide a unique name for every split.')
         if not product_headers_ready:next_steps.append('In Advanced options, give every product a display name.')
-        if duplicate_product_headers:next_steps.append('In Advanced options, distinguish duplicate product headers.')
         if test_type=='Monadic' and (not products_match or benchmark_count==0 or not all(benchmark_short_labels)):next_steps.append('In Advanced options, check the product plan, select a benchmark and name each reading.')
         if test_type=='Paired' and not paired_plans_valid:next_steps.append("Open 'Fix the automatic pair mapping' above and confirm which benchmark is compared with each candidate.")
         if summary_scope!='none' and summary_kpis.empty:next_steps.append('In Advanced options, select a summary KPI or turn off the KPI summary.')
