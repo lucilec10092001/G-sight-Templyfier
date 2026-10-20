@@ -1,4 +1,4 @@
-# G-Sight Templyfier v79
+# G-Sight Templyfier v80
 
 Templyfier turns G-Sight DataViz outputs into editable Excel toplines for consumer research studies. The interface is in English and the question detection supports English and French source wording. No consumer files or credentials are included in this repository.
 
@@ -26,7 +26,7 @@ The main table contains the decisions that affect Excel:
 
 Search and filters change only the view; hidden questions remain in the output. Tick `Select` on adjacent or non-adjacent rows to apply one action to several questions: keep, exclude, rename variables/items or groups, set section, stage, included splits or metrics, and add or remove KPI Summary.
 
-The table opens in the compact **Essentials** view. Keep, Question type and Metrics are shown first, before the longer source and label fields. **Study mapping**, **KPI Summary** and **All columns** expose the remaining fields without forcing horizontal complexity on every user. **Bulk select** is explicitly reserved for optional shared edits, and an unsaved-change message appears whenever a table edit still needs to be saved.
+The table opens in the compact **Essentials** view. Keep, Edit together, Question type and Metrics are shown first, before the longer source and label fields. **Study mapping**, **KPI Summary** and **All columns** expose the remaining fields without forcing horizontal complexity on every user. Ticking **Edit together** immediately opens a visible shared-edit box below the table; editing an ordinary cell still changes only that row. An unsaved-change message appears whenever a table edit still needs to be saved.
 
 Question ordering is available in the collapsed **Change question order - optional** panel below the table. Multiple questions or groups can be selected and dragged. Moves remain in the browser until `Save order`, avoiding a Streamlit rerun after every movement. Sections and groups follow this saved question order in Excel.
 
@@ -65,4 +65,4 @@ For an internal server deployment, follow `SERVER_DEPLOYMENT.md`. The current pu
 
 ## Validation
 
-Version 79 makes the question review more direct for first-time users while preserving every advanced edit. See `CHANGES_v79.md` and `VALIDATION_v79.md`.
+Version 80 makes shared edits explicit and visible as soon as questions are selected. See `CHANGES_v80.md` and `VALIDATION_v80.md`.

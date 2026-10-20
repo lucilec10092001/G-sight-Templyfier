@@ -140,8 +140,8 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
     st.markdown("### Review questions")
     st.caption(
         "Everything that affects the Excel output is in this table. Filtering only changes the view; "
-        "hidden rows stay in the output. Change the question type or open a Metrics cell to customise "
-        "one question. Use Bulk select only for one shared change across several questions."
+        "hidden rows stay in the output. Edit a cell to change one question. Tick **Edit together** "
+        "on several rows when the same section, stage, split or KPI change should apply to all of them."
     )
     filter_cols = st.columns([2.2, 1.1, 1.1, 1.1, 1.35])
     search = filter_cols[0].text_input(
@@ -186,7 +186,7 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
             continue
         grouped = bool(row.get("Group ID"))
         visible.append({
-            "Bulk select": False,
+            "Edit together": False,
             "Keep": bool(row["Keep"]),
             "G-Sight question": question_id,
             "Variable / item": row.get("Metric label") if grouped else row["Display label"],
@@ -208,20 +208,20 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
     )
     column_sets = {
         "Essentials (recommended)": [
-            "Keep", "Question type", "Metrics shown in Excel", "G-Sight question",
-            "Variable / item", "Group", "Stage", "Bulk select", "Status",
+            "Keep", "Edit together", "Question type", "Metrics shown in Excel", "G-Sight question",
+            "Variable / item", "Group", "Stage", "Status",
         ],
         "Study mapping": [
-            "Keep", "G-Sight question", "Section", "Stage", "Included splits", "Bulk select", "Status",
+            "Keep", "Edit together", "G-Sight question", "Section", "Stage", "Included splits", "Status",
         ],
         "KPI Summary": [
-            "Keep", "G-Sight question", "Variable / item",
-            "KPI Summary", "KPI short label", "Bulk select", "Status",
+            "Keep", "Edit together", "G-Sight question", "Variable / item",
+            "KPI Summary", "KPI short label", "Status",
         ],
         "All columns": [
-            "Keep", "Question type", "Metrics shown in Excel", "G-Sight question",
+            "Keep", "Edit together", "Question type", "Metrics shown in Excel", "G-Sight question",
             "Variable / item", "Group", "Section",
-            "Stage", "Included splits", "KPI Summary", "KPI short label", "Bulk select", "Status",
+            "Stage", "Included splits", "KPI Summary", "KPI short label", "Status",
         ],
     }
     edited = st.data_editor(
@@ -230,9 +230,9 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
         disabled=["G-Sight question", "Status"],
         column_order=column_sets[table_view],
         column_config={
-            "Bulk select": st.column_config.CheckboxColumn(
-                "Bulk select",
-                help="Select rows only to apply the same optional change to all of them.",
+            "Edit together": st.column_config.CheckboxColumn(
+                "Edit together",
+                help="Tick several questions, then use the shared-edit box below the table.",
             ),
             "Keep": st.column_config.CheckboxColumn(
                 "Keep", pinned=True, help="Untick to exclude this question from Excel."
@@ -273,9 +273,9 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
     )
 
     selected_ids = edited.loc[
-        edited["Bulk select"].astype(bool), "G-Sight question"
+        edited["Edit together"].astype(bool), "G-Sight question"
     ].astype(str).tolist()
-    comparison_columns = [column for column in edited.columns if column != "Bulk select"]
+    comparison_columns = [column for column in edited.columns if column != "Edit together"]
     original_visible = pd.DataFrame(visible)
     table_dirty = not edited[comparison_columns].reset_index(drop=True).equals(
         original_visible[comparison_columns].reset_index(drop=True)
@@ -329,9 +329,10 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
         return changed, by_id
 
     if selected_ids:
-        st.caption(
-            f"{len(selected_ids)} question(s) selected for an optional shared change below. "
-            "Metrics are edited directly in each row."
+        st.info(
+            f"**{len(selected_ids)} question(s) selected.** Choose one shared change below. "
+            "Editing a table cell still changes only that row.",
+            icon=":material/checklist:",
         )
 
     if table_dirty:
@@ -344,15 +345,15 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
         "Save question changes", type="primary", icon=":material/save:",
         key=f"save_question_table_{key}_{revision}_{view_key}",
     )
-    with st.expander("Other changes for selected questions - optional", expanded=False):
-        st.caption(
-            "Apply one shared name, group, section, stage, split or KPI choice "
-            "to the selected rows."
-        )
+    apply_bulk_clicked = False
+    bulk_action = "No shared change"
+    bulk_value = ""
+    if selected_ids:
+        st.markdown(f"#### Edit {len(selected_ids)} selected question(s) together")
         bulk_cols = st.columns([1.4, 2.2])
         bulk_action = bulk_cols[0].selectbox(
-            "Change",
-            ["No bulk action", "Keep", "Exclude", "Set variable / item name", "Set group",
+            "Apply this change",
+            ["No shared change", "Keep", "Exclude", "Set variable / item name", "Set group",
              "Set section", "Set stage", "Set included splits",
              "Add to KPI Summary", "Remove from KPI Summary"],
             key=f"question_bulk_action_{key}_{revision}",
@@ -367,8 +368,10 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
             key=f"question_bulk_value_{key}_{revision}",
         )
         apply_bulk_clicked = st.button(
-            "Apply change to selected rows",
-            disabled=bulk_action == "No bulk action",
+            f"Apply to {len(selected_ids)} selected question(s)",
+            disabled=bulk_action == "No shared change",
+            type="primary",
+            icon=":material/done_all:",
             key=f"apply_question_bulk_{key}_{revision}_{view_key}",
         )
 
