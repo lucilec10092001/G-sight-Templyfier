@@ -140,8 +140,8 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
     st.markdown("### Review questions")
     st.caption(
         "Everything that affects the Excel output is in this table. Filtering only changes the view; "
-        "hidden rows stay in the output. Open a Metrics cell to customise one question. Select rows "
-        "only when one shared change should apply to several questions."
+        "hidden rows stay in the output. Change the question type or open a Metrics cell to customise "
+        "one question. Use Bulk select only for one shared change across several questions."
     )
     filter_cols = st.columns([2.2, 1.1, 1.1, 1.1, 1.35])
     search = filter_cols[0].text_input(
@@ -186,7 +186,7 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
             continue
         grouped = bool(row.get("Group ID"))
         visible.append({
-            "Select": False,
+            "Bulk select": False,
             "Keep": bool(row["Keep"]),
             "G-Sight question": question_id,
             "Variable / item": row.get("Metric label") if grouped else row["Display label"],
@@ -208,20 +208,20 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
     )
     column_sets = {
         "Essentials (recommended)": [
-            "Select", "Keep", "G-Sight question", "Variable / item", "Group", "Stage",
-            "Question type", "Metrics shown in Excel", "Status",
+            "Keep", "Question type", "Metrics shown in Excel", "G-Sight question",
+            "Variable / item", "Group", "Stage", "Bulk select", "Status",
         ],
         "Study mapping": [
-            "Select", "Keep", "G-Sight question", "Section", "Stage", "Included splits", "Status",
+            "Keep", "G-Sight question", "Section", "Stage", "Included splits", "Bulk select", "Status",
         ],
         "KPI Summary": [
-            "Select", "Keep", "G-Sight question", "Variable / item",
-            "KPI Summary", "KPI short label", "Status",
+            "Keep", "G-Sight question", "Variable / item",
+            "KPI Summary", "KPI short label", "Bulk select", "Status",
         ],
         "All columns": [
-            "Select", "Keep", "G-Sight question", "Variable / item", "Group", "Section",
-            "Stage", "Included splits", "KPI Summary", "KPI short label", "Question type",
-            "Metrics shown in Excel", "Status",
+            "Keep", "Question type", "Metrics shown in Excel", "G-Sight question",
+            "Variable / item", "Group", "Section",
+            "Stage", "Included splits", "KPI Summary", "KPI short label", "Bulk select", "Status",
         ],
     }
     edited = st.data_editor(
@@ -230,9 +230,9 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
         disabled=["G-Sight question", "Status"],
         column_order=column_sets[table_view],
         column_config={
-            "Select": st.column_config.CheckboxColumn(
-                "Select", pinned=True,
-                help="Select one or several rows only when you want to apply one shared change.",
+            "Bulk select": st.column_config.CheckboxColumn(
+                "Bulk select",
+                help="Select rows only to apply the same optional change to all of them.",
             ),
             "Keep": st.column_config.CheckboxColumn(
                 "Keep", pinned=True, help="Untick to exclude this question from Excel."
@@ -255,7 +255,8 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
             "KPI Summary": st.column_config.CheckboxColumn(width="small"),
             "KPI short label": st.column_config.TextColumn(width="medium"),
             "Question type": st.column_config.SelectboxColumn(
-                options=list(QUESTION_TYPES), required=True, width="medium"
+                options=list(QUESTION_TYPES), required=True, width="medium",
+                help="Choose the question family. Its default Metrics recipe is applied when you save.",
             ),
             "Metrics shown in Excel": st.column_config.MultiselectColumn(
                 "Metrics",
@@ -272,8 +273,13 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
     )
 
     selected_ids = edited.loc[
-        edited["Select"].astype(bool), "G-Sight question"
+        edited["Bulk select"].astype(bool), "G-Sight question"
     ].astype(str).tolist()
+    comparison_columns = [column for column in edited.columns if column != "Bulk select"]
+    original_visible = pd.DataFrame(visible)
+    table_dirty = not edited[comparison_columns].reset_index(drop=True).equals(
+        original_visible[comparison_columns].reset_index(drop=True)
+    )
     def apply_visible_table_edits():
         changed = deepcopy(rows)
         by_id = {row["Question ID"]: row for row in changed}
@@ -326,6 +332,12 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
         st.caption(
             f"{len(selected_ids)} question(s) selected for an optional shared change below. "
             "Metrics are edited directly in each row."
+        )
+
+    if table_dirty:
+        st.warning(
+            "Changes are not applied yet. Click **Save question changes** below.",
+            icon=":material/edit_note:",
         )
 
     save_table_clicked = st.button(
@@ -407,17 +419,17 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
         except ValueError as exc:
             st.error(str(exc))
 
-    st.markdown("### Change the question order")
-    st.caption("Select one or several questions, including non-adjacent rows, and drag a handle. "
-               "Moves stay local until **Save order**, so the page does not reload after every move.")
-    order_result = question_order(rows, revision, f"order_{key}")
-    event = order_result.reordered
-    if event and event.get("revision") == revision:
-        try:
-            if event["ids"] != [row["Question ID"] for row in rows]:
-                commit(reorder_rows(rows, event["ids"]), "Question order updated.", request_rerun=False)
-        except (ValueError, KeyError, TypeError) as exc:
-            st.error(f"Move not applied: {exc}")
+    with st.expander("Change question order - optional", expanded=False):
+        st.caption("Select one or several questions, including non-adjacent rows, and drag a handle. "
+                   "Moves stay local until **Save order**, so the page does not reload after every move.")
+        order_result = question_order(rows, revision, f"order_{key}")
+        event = order_result.reordered
+        if event and event.get("revision") == revision:
+            try:
+                if event["ids"] != [row["Question ID"] for row in rows]:
+                    commit(reorder_rows(rows, event["ids"]), "Question order updated.", request_rerun=False)
+            except (ValueError, KeyError, TypeError) as exc:
+                st.error(f"Move not applied: {exc}")
 
     empty = [row for row in model["rows"] if row["Keep"] and not row["Selected metrics"]]
     if empty:
