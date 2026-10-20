@@ -26,6 +26,33 @@ def _group_id(section, label):
     return hashlib.sha1(f"{section}\0{label.casefold()}".encode("utf-8")).hexdigest()[:12]
 
 
+def _same_cell_value(left, right):
+    """Compare data-editor values without treating list identity or NaN as a change."""
+    if isinstance(left, (list, tuple)) or isinstance(right, (list, tuple)):
+        return list(left or []) == list(right or [])
+    if pd.isna(left) and pd.isna(right):
+        return True
+    return left == right
+
+
+def _selected_cell_changes(original_records, edited_records, selected_ids):
+    """Return explicit edits made inside selected rows, grouped by column."""
+    selected = set(selected_ids)
+    originals = {row["G-Sight question"]: row for row in original_records}
+    ignored = {"Edit together", "G-Sight question", "Status"}
+    changes = {}
+    for edited in edited_records:
+        question_id = edited["G-Sight question"]
+        if question_id not in selected or question_id not in originals:
+            continue
+        original = originals[question_id]
+        for column, value in edited.items():
+            if column in ignored or _same_cell_value(value, original.get(column)):
+                continue
+            changes.setdefault(column, []).append((question_id, value))
+    return changes
+
+
 def _apply_table_metric_edit(row, edited_type, edited_metrics, type_sources):
     """Apply one editable table row and honour the preset of a newly selected type."""
     previous_type = row["Type"]
@@ -140,8 +167,8 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
     st.markdown("### Review questions")
     st.caption(
         "Everything that affects the Excel output is in this table. Filtering only changes the view; "
-        "hidden rows stay in the output. Edit a cell to change one question. Tick **Edit together** "
-        "on several rows when the same section, stage, split or KPI change should apply to all of them."
+        "hidden rows stay in the output. Edit a cell to change one question. To make the same change "
+        "on several questions, tick **Edit together** on those rows and edit any one of their cells."
     )
     filter_cols = st.columns([2.2, 1.1, 1.1, 1.1, 1.35])
     search = filter_cols[0].text_input(
@@ -232,7 +259,7 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
         column_config={
             "Edit together": st.column_config.CheckboxColumn(
                 "Edit together",
-                help="Tick several questions, then use the shared-edit box below the table.",
+                help="Tick several rows, then edit one selected row. The value is copied to every selected row.",
             ),
             "Keep": st.column_config.CheckboxColumn(
                 "Keep", pinned=True, help="Untick to exclude this question from Excel."
@@ -280,14 +307,46 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
     table_dirty = not edited[comparison_columns].reset_index(drop=True).equals(
         original_visible[comparison_columns].reset_index(drop=True)
     )
-    def apply_visible_table_edits():
+    shared_changes = _selected_cell_changes(
+        visible, edited.to_dict("records"), selected_ids
+    )
+
+    def apply_visible_table_edits(propagated=None):
         changed = deepcopy(rows)
         by_id = {row["Question ID"]: row for row in changed}
         type_sources = {}
         for source_row in rows:
             if source_row.get("Keep") and source_row["Type"] not in type_sources:
                 type_sources[source_row["Type"]] = source_row
-        for edit in edited.to_dict("records"):
+        edit_records = edited.to_dict("records")
+        if propagated:
+            edited_by_id = {record["G-Sight question"]: record for record in edit_records}
+            source_rows = {row["Question ID"]: row for row in rows}
+            for column, entries in propagated.items():
+                values = []
+                for source_id, value in entries:
+                    if not any(_same_cell_value(value, existing) for existing in values):
+                        values.append(value)
+                if len(values) != 1:
+                    raise ValueError(
+                        f"Two different values were entered for {column}. Keep one value before editing together."
+                    )
+                source_id, value = entries[-1]
+                for question_id in selected_ids:
+                    if column == "Metrics shown in Excel" and question_id != source_id:
+                        matched, missing = safe_metric_match(
+                            source_rows[source_id], source_rows[question_id], list(value or [])
+                        )
+                        if missing:
+                            raise ValueError(
+                                f"The selected Metrics are not available for {question_id}. "
+                                "No shared change was applied."
+                            )
+                        edited_by_id[question_id][column] = matched
+                    else:
+                        edited_by_id[question_id][column] = value
+            edit_records = list(edited_by_id.values())
+        for edit in edit_records:
             row = by_id[edit["G-Sight question"]]
             _apply_table_metric_edit(
                 row,
@@ -328,12 +387,24 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
                 row["Metric label"] = ""
         return changed, by_id
 
-    if selected_ids:
+    if selected_ids and not shared_changes:
         st.info(
-            f"**{len(selected_ids)} question(s) selected.** Choose one shared change below. "
-            "Editing a table cell still changes only that row.",
+            f"**{len(selected_ids)} question(s) selected.** Now edit one selected cell; "
+            "the same value will be copied to every selected question.",
             icon=":material/checklist:",
         )
+
+    if selected_ids and shared_changes:
+        try:
+            changed, _ = apply_visible_table_edits(shared_changes)
+            columns = ", ".join(shared_changes)
+            if remember_edit(
+                model, changed,
+                f"{columns} applied to {len(selected_ids)} selected question(s).",
+            ):
+                st.rerun()
+        except ValueError as exc:
+            st.error(str(exc))
 
     if table_dirty:
         st.warning(
@@ -345,80 +416,11 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
         "Save question changes", type="primary", icon=":material/save:",
         key=f"save_question_table_{key}_{revision}_{view_key}",
     )
-    apply_bulk_clicked = False
-    bulk_action = "No shared change"
-    bulk_value = ""
-    if selected_ids:
-        st.markdown(f"#### Edit {len(selected_ids)} selected question(s) together")
-        bulk_cols = st.columns([1.4, 2.2])
-        bulk_action = bulk_cols[0].selectbox(
-            "Apply this change",
-            ["No shared change", "Keep", "Exclude", "Set variable / item name", "Set group",
-             "Set section", "Set stage", "Set included splits",
-             "Add to KPI Summary", "Remove from KPI Summary"],
-            key=f"question_bulk_action_{key}_{revision}",
-        )
-        bulk_value = bulk_cols[1].text_input(
-            "New value",
-            placeholder="Required for names, groups, sections, stages or splits",
-            disabled=bulk_action not in {
-                "Set variable / item name", "Set group", "Set section", "Set stage",
-                "Set included splits",
-            },
-            key=f"question_bulk_value_{key}_{revision}",
-        )
-        apply_bulk_clicked = st.button(
-            f"Apply to {len(selected_ids)} selected question(s)",
-            disabled=bulk_action == "No shared change",
-            type="primary",
-            icon=":material/done_all:",
-            key=f"apply_question_bulk_{key}_{revision}_{view_key}",
-        )
 
-    if save_table_clicked or apply_bulk_clicked:
+    if save_table_clicked:
         try:
             changed, by_id = apply_visible_table_edits()
-            if apply_bulk_clicked and not selected_ids:
-                raise ValueError("Select at least one row before applying a shared change.")
-            if apply_bulk_clicked and bulk_action in {
-                "Set variable / item name", "Set group", "Set section", "Set stage",
-                "Set included splits",
-            } and not _clean(bulk_value):
-                raise ValueError("Enter the new value for the selected rows.")
-            if apply_bulk_clicked:
-                for question_id in selected_ids:
-                    row = by_id[question_id]
-                    if bulk_action == "Keep":
-                        row["Keep"] = True
-                    elif bulk_action == "Exclude":
-                        row["Keep"] = False
-                    elif bulk_action == "Set variable / item name":
-                        if row.get("Group ID"):
-                            row["Metric label"] = _clean(bulk_value)
-                        else:
-                            row["Display label"] = _clean(bulk_value)
-                    elif bulk_action == "Set group":
-                        label = _clean(bulk_value)
-                        variable = row.get("Metric label") or row["Display label"]
-                        row["Group ID"] = _group_id(row.get("Section", ""), label)
-                        row["Display label"] = label
-                        row["Metric label"] = variable
-                    elif bulk_action == "Set section":
-                        row["Section"] = _clean(bulk_value)
-                        if row.get("Group ID"):
-                            row["Group ID"] = _group_id(row["Section"], row["Display label"])
-                    elif bulk_action == "Set stage":
-                        row["Stage"] = _clean(bulk_value)
-                    elif bulk_action == "Set included splits":
-                        row["Included splits"] = _clean(bulk_value)
-                    elif bulk_action == "Add to KPI Summary":
-                        row["KPI Summary"] = True
-                    elif bulk_action == "Remove from KPI Summary":
-                        row["KPI Summary"] = False
-            commit(
-                changed,
-                "Selected questions updated." if apply_bulk_clicked else "Question table updated.",
-            )
+            commit(changed, "Question table updated.")
         except ValueError as exc:
             st.error(str(exc))
 

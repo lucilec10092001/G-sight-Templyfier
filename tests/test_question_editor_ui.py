@@ -1,10 +1,33 @@
 import unittest
 
-from question_editor import _apply_selected_metrics, _apply_table_metric_edit
+from question_editor import (
+    _apply_selected_metrics, _apply_table_metric_edit, _selected_cell_changes,
+)
 from .test_client_memory import row
 
 
 class QuestionEditorUiTests(unittest.TestCase):
+    def test_edit_together_detects_one_stage_edit_on_selected_rows(self):
+        original = [
+            {"Edit together": False, "G-Sight question": "Q-1", "Stage": "Wet", "Status": "Ready"},
+            {"Edit together": False, "G-Sight question": "Q-2", "Stage": "Wet", "Status": "Ready"},
+        ]
+        edited = [dict(original[0], **{"Edit together": True, "Stage": "Dry"}),
+                  dict(original[1], **{"Edit together": True})]
+        self.assertEqual(
+            _selected_cell_changes(original, edited, ["Q-1", "Q-2"]),
+            {"Stage": [("Q-1", "Dry")]},
+        )
+
+    def test_edit_outside_selected_rows_is_not_shared(self):
+        original = [
+            {"Edit together": False, "G-Sight question": "Q-1", "Stage": "Wet", "Status": "Ready"},
+            {"Edit together": False, "G-Sight question": "Q-2", "Stage": "Wet", "Status": "Ready"},
+        ]
+        edited = [dict(original[0], **{"Edit together": True}),
+                  dict(original[1], **{"Stage": "Dry"})]
+        self.assertEqual(_selected_cell_changes(original, edited, ["Q-1"]), {})
+
     def test_direct_table_metric_edit_updates_one_question(self):
         target = row(metrics=["Mean", "Top Box", "Top 2 Boxes"], selected=["Mean"])
         _apply_table_metric_edit(target, "Standard", ["Mean", "Top 2 Boxes"], {})

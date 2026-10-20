@@ -1,4 +1,4 @@
-# G-Sight Templyfier v80
+# G-Sight Templyfier v81
 
 Templyfier turns G-Sight DataViz outputs into editable Excel toplines for consumer research studies. The interface is in English and the question detection supports English and French source wording. No consumer files or credentials are included in this repository.
 
@@ -26,7 +26,7 @@ The main table contains the decisions that affect Excel:
 
 Search and filters change only the view; hidden questions remain in the output. Tick `Select` on adjacent or non-adjacent rows to apply one action to several questions: keep, exclude, rename variables/items or groups, set section, stage, included splits or metrics, and add or remove KPI Summary.
 
-The table opens in the compact **Essentials** view. Keep, Edit together, Question type and Metrics are shown first, before the longer source and label fields. **Study mapping**, **KPI Summary** and **All columns** expose the remaining fields without forcing horizontal complexity on every user. Ticking **Edit together** immediately opens a visible shared-edit box below the table; editing an ordinary cell still changes only that row. An unsaved-change message appears whenever a table edit still needs to be saved.
+The table opens in the compact **Essentials** view. Keep, Edit together, Question type and Metrics are shown first, before the longer source and label fields. **Study mapping**, **KPI Summary** and **All columns** expose the remaining fields without forcing horizontal complexity on every user. To edit several questions, tick **Edit together** on those rows and change one selected cell: the value is copied immediately to every selected row. Editing without a selection changes only that question.
 
 Question ordering is available in the collapsed **Change question order - optional** panel below the table. Multiple questions or groups can be selected and dragged. Moves remain in the browser until `Save order`, avoiding a Streamlit rerun after every movement. Sections and groups follow this saved question order in Excel.
 
@@ -65,4 +65,4 @@ For an internal server deployment, follow `SERVER_DEPLOYMENT.md`. The current pu
 
 ## Validation
 
-Version 80 makes shared edits explicit and visible as soon as questions are selected. See `CHANGES_v80.md` and `VALIDATION_v80.md`.
+Version 81 makes multi-row editing behave like a familiar spreadsheet selection. See `CHANGES_v81.md` and `VALIDATION_v81.md`.
