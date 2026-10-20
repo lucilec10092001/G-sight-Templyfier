@@ -130,6 +130,55 @@ class ConsolidatedPairedTests(unittest.TestCase):
         self.assertEqual(report["pairs"], 2)
         self.assertEqual((output["C7"].value, output["G7"].value), (5.0, 4.8))
 
+    def test_generic_two_tailed_tabs_are_splits_and_companion_views_are_ignored(self):
+        workbook = load_workbook(BytesIO(self.source_bytes()))
+        total = workbook["TOTAL"]
+        workbook.remove(workbook["BOOST"])
+        total.title = "Table_1_2_TAILED"
+        total["A1"] = "Stage: OVERALL - IN USE"
+
+        age = workbook.copy_worksheet(total)
+        age.title = "Table_2_2_TAILED"
+        age["A2"] = "Search: S-03-Age: 18 - 30 years, 31 - 40 years"
+        younger = workbook.copy_worksheet(total)
+        younger.title = "Table_3_2_TAILED"
+        younger["A2"] = "Search: S-03-Age: Under 18 years, 18 - 30 years"
+        duplicate_total = workbook.copy_worksheet(total)
+        duplicate_total.title = "Table_4_2_TAILED"
+        one_tailed = workbook.copy_worksheet(age)
+        one_tailed.title = "Table_2_1_TAILED"
+        delta = workbook.copy_worksheet(age)
+        delta.title = "Table_2_2_TAILED_DELTA"
+        legend = workbook.create_sheet("Table_2_Legend")
+        legend["A1"] = "2-TAILED"
+        payload = BytesIO()
+        workbook.save(payload)
+
+        info = inspect_smart_package((("consolidated.xlsx", payload.getvalue()),))
+
+        self.assertEqual(len(info.inputs), 3)
+        self.assertEqual(
+            [item.source_sheet for item in info.inputs],
+            ["Table_1_2_TAILED", "Table_2_2_TAILED", "Table_3_2_TAILED"],
+        )
+        self.assertEqual(
+            [item.split_name for item in info.inputs],
+            ["TOTAL", "18-40 YO", "UNDER 18 YEARS, 18 - 30 YEARS"],
+        )
+
+        rows = [proposal_to_row(item) for item in info.questions]
+        names = [item.split_name for item in info.inputs]
+        data, report = build_smart_toplines(
+            (("consolidated.xlsx", payload.getvalue()),), rows,
+            split_names=names, benchmark_positions=(),
+            standard_metrics=("Mean", "Top Box", "Top 2 Boxes", "Bottom 2 Boxes"),
+            include_screeners=False, test_type="Paired",
+        )
+        output = load_workbook(BytesIO(data), data_only=False)
+        self.assertEqual(output.sheetnames, names)
+        self.assertEqual(report["data_rows_written"], 12)
+
 
 if __name__ == "__main__":
     unittest.main()
+

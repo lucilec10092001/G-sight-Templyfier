@@ -692,7 +692,21 @@ def _embedded_data_sheets(workbook):
             except TemplyfierError:
                 pass
     if sheets:
-        return sheets
+        # A G-Sight workbook can contain the same TOTAL 2-tailed table twice.
+        # Keep the first exact value copy so the duplicate cannot become a
+        # second split, while preserving genuinely different filtered tables.
+        unique = []
+        fingerprints = set()
+        for sheet in sheets:
+            fingerprint = tuple(
+                tuple(cell.value for cell in row)
+                for row in sheet.iter_rows()
+            )
+            if fingerprint in fingerprints:
+                continue
+            fingerprints.add(fingerprint)
+            unique.append(sheet)
+        return unique
     for sheet in workbook.worksheets:
         if any(word in sheet.title.casefold() for word in ("legend", "screener")):
             continue
@@ -817,7 +831,14 @@ def _friendly_split_label(sheet) -> str:
         return "WHITE MO"
     if "colour mo:" in search or "colour mo" in search:
         return "OTHER COLORS"
-    if "age" in search and any(token in search for token in ("under 18", "18 30", "31 40", "18 40")):
+    if (
+        "age" in search
+        and not any(token in search for token in ("under 18", "moins de 18"))
+        and (
+            "18 40" in search
+            or ("18 30" in search and "31 40" in search)
+        )
+    ):
         return "18-40 YO"
     if "age" in search and any(token in search for token in ("41 50", "51 64", "41 64")):
         return "41+ YO" if "65 years" in search else "41-64 YO"
@@ -838,7 +859,9 @@ def _generic_split_label(sheet) -> str:
     for part in parts:
         if ":" not in part:
             continue
-        value = part.split(":", 1)[1].strip()
+        # Native G-Sight writes the user-facing split after the final colon:
+        # "S-03-Age: 18-30, 31-40" -> "18-30, 31-40".
+        value = part.rsplit(":", 1)[1].strip()
         value = re.sub(r"^\d+\s*[-.)]\s*", "", value).strip()
         if not value or _normal(value) in {"all", "total", "total population"}:
             continue
@@ -920,7 +943,15 @@ def _embedded_sheets_are_consumer_splits(filename: str, sheets: Sequence) -> boo
         for sheet in sheets
         if _normal(_stage_name(sheet)) not in {"", "none", "not specified", "non precise"}
     }
-    if meaningful_stages:
+    # Several 2-tailed tables with one common stage but different Search
+    # filters are embedded consumer splits. Companion 1-tailed and DELTA views
+    # have already been excluded by `_embedded_data_sheets`.
+    raw_split_labels = {
+        _normal(_split_label(sheet)) for sheet in sheets if _has_split_filter(sheet)
+    }
+    if len(meaningful_stages) <= 1 and raw_split_labels:
+        return True
+    if len(meaningful_stages) > 1:
         return False
     generic = re.compile(r"^(?:table|sheet|feuil|data|results?|resultats?)[\s_-]*\d*$", re.I)
     titles = [_text(sheet.title) for sheet in sheets]
@@ -1734,7 +1765,15 @@ def inspect_smart_package(raw_files: Sequence[tuple[str, object]]) -> SmartPacka
         for split_sheet in split_sheets:
             split_layout = _active_layout(split_sheet, detect_layout(split_sheet))
             if len(split_sheets) > 1:
-                split_name, split_detection = _text(split_sheet.title), "High confidence"
+                generic_title = bool(re.fullmatch(
+                    r"(?:table|sheet|feuil|data|results?|resultats?)[\s_-]*\d+(?:[\s_-]*2[\s_-]*tailed)?",
+                    _normal(split_sheet.title),
+                    flags=re.I,
+                ))
+                if _has_split_filter(split_sheet) or generic_title:
+                    split_name, split_detection = _split_detection(split_sheet, item_filename)
+                else:
+                    split_name, split_detection = _text(split_sheet.title), "High confidence"
             else:
                 split_name, split_detection = _split_detection(split_sheet, item_filename)
             inputs.append(
@@ -1824,8 +1863,16 @@ def inspect_smart_package(raw_files: Sequence[tuple[str, object]]) -> SmartPacka
                 key = proposal.question_id.casefold()
                 if key not in indexed_metrics:
                     continue
+                sheet_input = next(
+                    (
+                        item for item in inputs
+                        if item.filename == item_filename
+                        and item.source_sheet == item_sheet.title
+                    ),
+                    input_info,
+                )
                 availability.setdefault(key, set()).add(
-                    _text(item_sheet.title) if sheets_are_splits else input_info.split_name
+                    sheet_input.split_name if sheets_are_splits else input_info.split_name
                 )
                 for metric_key in indexed_metrics[key]:
                     metric_availability.setdefault(key,{}).setdefault(metric_key,set()).add(item_filename)
