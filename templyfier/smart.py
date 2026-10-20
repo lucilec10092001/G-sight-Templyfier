@@ -482,7 +482,14 @@ def _cmr_match_score(product_key: str, source_name: str, product: CmrProduct) ->
         re.sub(r"[^A-Z0-9]", "", token)
         for token in re.findall(r"\b[A-Z][A-Z0-9-]{5,}\b", product.formula_description.upper())
     }
-    if any(code.lower() in compact_source for code in description_codes if len(code) >= 6):
+    # Ordinary description words such as FRANCE, MACHINE or REGULAR are not
+    # stable identifiers. Only code-like alphanumeric tokens may identify a
+    # product here; explicit Formula code matching is handled above.
+    if any(
+        code.lower() in compact_source
+        for code in description_codes
+        if len(code) >= 6 and any(character.isdigit() for character in code)
+    ):
         return 94, "Code dans Formula description"
     description = _normal(product.formula_description)
     if description and (description in source or source in description):
@@ -497,9 +504,24 @@ def _cmr_match_score(product_key: str, source_name: str, product: CmrProduct) ->
         word for word in _normal(f"{product.brand} {product.line_variant}").split()
         if len(word) >= 4 and word not in {"line", "variant"}
     }
-    if brand_words and len(brand_words & set(source.split())) / len(brand_words) >= 0.6:
-        return 80, "Marque / variante benchmark"
+    if brand_words:
+        brand_overlap = len(brand_words & set(source.split())) / len(brand_words)
+        if brand_overlap == 1:
+            return 96, "Marque / variante benchmark exacte"
+        if brand_overlap >= 0.6:
+            return 80, "Marque / variante benchmark"
     return 0, "Aucun rapprochement fiable"
+
+
+def _cmr_semantic_signature(product: CmrProduct) -> tuple[str, ...]:
+    """Identify the represented product while ignoring its pair-specific CMR code."""
+    return tuple(
+        _normal(getattr(product, field))
+        for field in (
+            "formula_code", "fantasy_name", "formula_description", "formula_type",
+            "fr_land_id", "brand", "line_variant",
+        )
+    )
 
 
 def match_cmr_products(
@@ -525,7 +547,13 @@ def match_cmr_products(
             continue
         best_score = max(edge[0] for edge in candidates)
         best_indexes = {edge[2] for edge in candidates if edge[0] == best_score}
-        if best_score >= 80 and len(best_indexes) > 1:
+        represented_products = {
+            _cmr_semantic_signature(catalog[index]) for index in best_indexes
+        }
+        # A reused benchmark may have one row-level CMR code per pair while all
+        # stable product fields remain identical. That is repetition, not an
+        # ambiguity. Still block ties between materially different products.
+        if best_score >= 80 and len(represented_products) > 1:
             labels = [
                 catalog[index].cmr_code or catalog[index].formula_code or catalog[index].fantasy_name
                 for index in sorted(best_indexes)
@@ -545,6 +573,17 @@ def match_cmr_products(
         owner = cmr_owner.get(cmr_index)
         if owner is not None and owner != signature:
             continue
+        if owner == signature:
+            has_unused_equivalent = any(
+                other_score == score
+                and other_product_index == product_index
+                and other_cmr_index not in cmr_owner
+                and _cmr_semantic_signature(catalog[other_cmr_index])
+                == _cmr_semantic_signature(catalog[cmr_index])
+                for other_score, other_product_index, other_cmr_index, _ in edges
+            )
+            if has_unused_equivalent:
+                continue
         assigned_products[product_index] = (catalog[cmr_index], score, matched_by)
         cmr_owner[cmr_index] = signature
 

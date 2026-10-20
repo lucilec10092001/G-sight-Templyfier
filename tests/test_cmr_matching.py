@@ -5,7 +5,9 @@ from openpyxl import Workbook
 
 from templyfier.core import TemplyfierError
 from templyfier.smart import (
+    _cmr_match_score,
     _embedded_data_sheets,
+    CmrProduct,
     cmr_benchmark_positions,
     match_cmr_products,
     parse_cmr_products,
@@ -87,6 +89,57 @@ class CmrMatchingTests(unittest.TestCase):
         )
         self.assertEqual([item.score for item in matches], [100, 100])
         self.assertEqual([item.cmr_code for item in matches], ["H2N", "H2N"])
+
+    def test_country_word_in_description_is_not_treated_as_a_product_code(self):
+        product = CmrProduct(
+            cmr_code="Z4A",
+            formula_code="BNCK-360387",
+            fantasy_name="",
+            formula_description="Ariel Alpine Machine Wash Regular France",
+            formula_type="benchmark",
+            fr_land_id="360387",
+            brand="Ariel",
+            line_variant="Alpine",
+        )
+        score, reason = _cmr_match_score(
+            "skip active clean france 2024",
+            "Skip Active Clean France 2024",
+            product,
+        )
+        self.assertEqual((score, reason), (0, "Aucun rapprochement fiable"))
+
+    def test_complete_brand_and_variant_match_is_strong_enough_for_benchmark_detection(self):
+        product = CmrProduct(
+            cmr_code="H2N",
+            formula_code="BNCK-325430",
+            fantasy_name="",
+            formula_description="Skip Active Clean Machine Wash Regular France",
+            formula_type="benchmark",
+            fr_land_id="325430",
+            brand="Skip",
+            line_variant="Active Clean",
+        )
+        score, reason = _cmr_match_score(
+            "skip active clean france 2024",
+            "Skip Active Clean France 2024",
+            product,
+        )
+        self.assertEqual((score, reason), (96, "Marque / variante benchmark exacte"))
+
+    def test_pair_specific_codes_for_same_benchmark_are_not_ambiguous(self):
+        rows = [
+            ["H2N", "BNCK-325430", "", "Skip Active Clean France", "Benchmark", 325430],
+            ["P4J", "BNCK-325430", "", "Skip Active Clean France", "Benchmark", 325430],
+            ["B1V", "BNCK-325430", "", "Skip Active Clean France", "Benchmark", 325430],
+            ["W3C", "BNCK-325430", "", "Skip Active Clean France", "Benchmark", 325430],
+        ]
+        matches = match_cmr_products(
+            ("skip active clean france 2024",) * 4,
+            ("Skip Active Clean France 2024",) * 4,
+            self._cmr_bytes(rows),
+        )
+        self.assertEqual([item.score for item in matches], [92, 92, 92, 92])
+        self.assertEqual(len({item.cmr_code for item in matches}), 4)
 
     def test_equal_best_cmr_matches_are_blocked(self):
         rows = [
