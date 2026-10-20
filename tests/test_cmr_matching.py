@@ -21,7 +21,7 @@ class CmrMatchingTests(unittest.TestCase):
         sheet = workbook.active
         sheet.append([
             "CMR code", "Formula code", "Fantasy name", "Formula description",
-            "Formula type", "Fr-Land ID",
+            "Formula type", "Fr-Land ID", "Brand", "Line Variant",
         ])
         for row in rows:
             sheet.append(row)
@@ -141,6 +141,21 @@ class CmrMatchingTests(unittest.TestCase):
         self.assertEqual([item.score for item in matches], [92, 92, 92, 92])
         self.assertEqual(len({item.cmr_code for item in matches}), 4)
 
+    def test_pair_specific_benchmark_rows_with_distinct_technical_ids_are_not_ambiguous(self):
+        rows = [
+            ["H2N", "BNCK-100001", "", "Skip formula one", "Benchmark", 100001, "Skip", "Active Clean"],
+            ["P4J", "BNCK-100002", "", "Skip formula two", "Benchmark", 100002, "Skip", "Active Clean"],
+            ["B1V", "BNCK-100003", "", "Skip formula three", "Benchmark", 100003, "Skip", "Active Clean"],
+            ["W3C", "BNCK-100004", "", "Skip formula four", "Benchmark", 100004, "Skip", "Active Clean"],
+        ]
+        matches = match_cmr_products(
+            ("skip active clean france 2024",) * 4,
+            ("Skip - <No Line> - Active Clean - France - 2024",) * 4,
+            self._cmr_bytes(rows),
+        )
+        self.assertEqual([item.score for item in matches], [96, 96, 96, 96])
+        self.assertEqual(len({item.cmr_code for item in matches}), 4)
+
     def test_equal_best_cmr_matches_are_blocked(self):
         rows = [
             ["A26", "SAME123", "Product A", "", "Candidate", ""],
@@ -179,3 +194,4 @@ class CmrMatchingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

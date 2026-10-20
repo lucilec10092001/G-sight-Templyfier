@@ -44,7 +44,7 @@ st.markdown(
       div[data-testid="stButton"] button[kind="primary"], div[data-testid="stDownloadButton"] button {min-height:3rem; font-weight:700; border-radius:12px;}
     </style>
     <div class="hero">
-      <h1>G-Sight Templyfier <span style="font-size:.85rem;opacity:.75">v82</span></h1>
+      <h1>G-Sight Templyfier <span style="font-size:.85rem;opacity:.75">v83</span></h1>
       <p>Turn your G-Sight outputs into review-ready Excel toplines.</p>
       <span class="privacy">&#128274; PRIVACY_TEXT</span>
     </div>
@@ -54,3 +54,4 @@ st.markdown(
 
 render_onboarding()
 render_smart_mode()
+
