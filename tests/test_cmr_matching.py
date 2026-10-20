@@ -9,6 +9,7 @@ from templyfier.smart import (
     _embedded_data_sheets,
     CmrProduct,
     cmr_benchmark_positions,
+    inspect_smart_package,
     match_cmr_products,
     parse_cmr_products,
 )
@@ -89,6 +90,40 @@ class CmrMatchingTests(unittest.TestCase):
         )
         self.assertEqual([item.score for item in matches], [100, 100])
         self.assertEqual([item.cmr_code for item in matches], ["H2N", "H2N"])
+
+    def test_pair_suffix_and_fantasy_name_can_reuse_one_cmr_product(self):
+        cmr = self._cmr_bytes([
+            ["K1M", "ANL941CNX", "APOPHIS P3P 64D", "APOPHIS 601DO MOD P3P", "Candidate", ""],
+        ])
+        matches = match_cmr_products(
+            ("44 k1m1", "44 apophis p3p 64d"),
+            ("44 - K1M1", "44 - APOPHIS P3P 64D"),
+            cmr,
+        )
+        self.assertEqual([item.cmr_code for item in matches], ["K1M", "K1M"])
+        self.assertEqual([item.score for item in matches], [97, 84])
+
+    def test_blank_question_cells_carry_down_across_strength_metrics(self):
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "Table_1_2_TAILED"
+        sheet["A5"], sheet["B5"] = "Variable", "Metric"
+        sheet["C3"], sheet["C4"], sheet["C5"] = "Product A", "44 - A1", "A1"
+        sheet["E3"], sheet["E4"], sheet["E5"] = "Product B", "44 - B1", "B1"
+        sheet["A6"], sheet["B6"], sheet["C6"], sheet["E6"] = "Q-16-1-Intensity by stages-Wet", "Too Strong", 10, 20
+        sheet["B7"], sheet["C7"], sheet["E7"] = "Just about right", 80, 70
+        sheet["B8"], sheet["C8"], sheet["E8"] = "Too Weak", 10, 10
+        payload = BytesIO()
+        workbook.save(payload)
+
+        info = inspect_smart_package((("paired.xlsx", payload.getvalue()),))
+
+        self.assertEqual(len(info.questions), 1)
+        self.assertEqual(info.questions[0].question_type, "Strength")
+        self.assertEqual(
+            info.questions[0].metrics,
+            ("Too Strong", "Just about right", "Too Weak"),
+        )
 
     def test_country_word_in_description_is_not_treated_as_a_product_code(self):
         product = CmrProduct(

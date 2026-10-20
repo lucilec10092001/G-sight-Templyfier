@@ -472,6 +472,18 @@ def _cmr_match_score(product_key: str, source_name: str, product: CmrProduct) ->
         _text(source_name).upper(),
     ):
         return 99, "Code CMR exact dans le nom G-Sight"
+    # Some Paired exports append a position suffix to the CMR code in the
+    # G-Sight header (for example K1M1 for CMR row K1M). Accept only one
+    # trailing digit and only when the unsuffixed code is otherwise exact.
+    if (
+        cmr_code
+        and len(cmr_code) >= 3
+        and re.search(
+            rf"(?<![A-Z0-9]){re.escape(cmr_code)}\d(?![A-Z0-9])",
+            _text(source_name).upper(),
+        )
+    ):
+        return 97, "Code CMR avec suffixe de paire"
     if formula_code and formula_code.lower() in compact_source:
         return 98, "Formula code exact"
     fr_land_value = re.sub(r"\.0+$", "", _text(product.fr_land_id).strip())
@@ -587,7 +599,7 @@ def match_cmr_products(
                 f"confidence ({', '.join(labels)}). Correct the CMR identifiers before generating toplines."
             )
     assigned_products = {}
-    cmr_owner: dict[int, tuple[str, str]] = {}
+    cmr_owner: dict[int, tuple[tuple[str, str], int]] = {}
     for score, product_index, cmr_index, matched_by in sorted(edges, reverse=True):
         if product_index in assigned_products:
             continue
@@ -595,9 +607,15 @@ def match_cmr_products(
         source = _normal(product_names[product_index])
         signature = ("key", key) if key else ("name", source)
         owner = cmr_owner.get(cmr_index)
-        if owner is not None and owner != signature:
-            continue
-        if owner == signature:
+        owner_signature = owner[0] if owner else None
+        owner_score = owner[1] if owner else 0
+        if owner_signature is not None and owner_signature != signature:
+            # One physical CMR row may legitimately represent two positions in
+            # a Paired plan when the same fragrance is tested twice. Require
+            # independent medium-or-better evidence for both positions.
+            if min(owner_score, score) < 80:
+                continue
+        if owner_signature == signature:
             has_unused_equivalent = any(
                 other_score == score
                 and other_product_index == product_index
@@ -609,7 +627,7 @@ def match_cmr_products(
             if has_unused_equivalent:
                 continue
         assigned_products[product_index] = (catalog[cmr_index], score, matched_by)
-        cmr_owner[cmr_index] = signature
+        cmr_owner[cmr_index] = (signature, max(owner_score, score))
 
     matches = []
     for product_index, (key, name) in enumerate(zip(product_keys, product_names)):
@@ -1553,17 +1571,29 @@ def _classify(question_id: str, mapped_kpi: str, metrics: Sequence[str]) -> tupl
     return "Autres", "Faible"
 
 
+def _question_metric_rows(sheet, layout):
+    """Yield metric rows while carrying down merged/blank question cells."""
+    current_question = ""
+    current_kpi = ""
+    for row in range(layout.header_row + 1, sheet.max_row + 1):
+        raw_question = _text(sheet.cell(row, layout.metric_col - 1).value)
+        raw_kpi = _text(sheet.cell(row, max(1, layout.metric_col - 2)).value)
+        metric = _text(sheet.cell(row, layout.metric_col).value)
+        if raw_question:
+            current_question = raw_question
+            current_kpi = raw_kpi
+        elif raw_kpi:
+            current_kpi = raw_kpi
+        if metric and current_question:
+            yield row, current_question, current_kpi, metric
+
+
 def _analyze_question_sheet(sheet) -> tuple:
     """Analyse every question in one validated G-Sight result sheet."""
     layout = detect_layout(sheet)
     source_stage = _stage_name(sheet)
     groups: dict[str, dict] = {}
-    for row in range(layout.header_row + 1, sheet.max_row + 1):
-        question_id = _text(sheet.cell(row, layout.metric_col - 1).value)
-        mapped_kpi = _text(sheet.cell(row, max(1, layout.metric_col - 2)).value)
-        metric = _text(sheet.cell(row, layout.metric_col).value)
-        if not question_id or not metric:
-            continue
+    for row, question_id, mapped_kpi, metric in _question_metric_rows(sheet, layout):
         key = question_id.casefold()
         if key not in groups:
             groups[key] = {
@@ -1785,9 +1815,7 @@ def inspect_smart_package(raw_files: Sequence[tuple[str, object]]) -> SmartPacka
             if item_filename == filename and not source_sheet:
                 source_sheet = item_source_sheet
             indexed_metrics: dict[str, dict[str, str]] = {}
-            for source_row in range(item_layout.header_row + 1, item_sheet.max_row + 1):
-                qid=_text(item_sheet.cell(source_row,item_layout.metric_col-1).value)
-                metric=_text(item_sheet.cell(source_row,item_layout.metric_col).value)
+            for source_row, qid, _, metric in _question_metric_rows(item_sheet, item_layout):
                 has_value=any(isinstance(item_sheet.cell(source_row,col).value,(int,float))
                     and not isinstance(item_sheet.cell(source_row,col).value,bool) for col in item_layout.product_cols)
                 if qid and metric and has_value:
@@ -2031,8 +2059,8 @@ def _attribute_keep(metric: str) -> bool:
 
 def _find_source_rows(sheet, layout, question_id: str, question_type: str, standard_metrics: Sequence[str]):
     question_candidates = [
-        row for row in range(layout.header_row + 1, sheet.max_row + 1)
-        if _text(sheet.cell(row, layout.metric_col - 1).value).casefold() == question_id.casefold()
+        row for row, source_question, _, _ in _question_metric_rows(sheet, layout)
+        if source_question.casefold() == question_id.casefold()
     ]
     if question_type == "Strength":
         direct_labels = {"too weak", "just about right", "too strong"}
@@ -2089,16 +2117,16 @@ def configured_source_rows(sheet, layout, config, fallback):
         # Explicit CMI selection overrides every type-specific default, including
         # strength and CATA. Empty means empty, not 'all metrics'.
         keys = {_metric_key(m) for m in selected}
-        return [r for r in range(layout.header_row + 1, sheet.max_row + 1)
-                if _text(sheet.cell(r, layout.metric_col - 1).value).casefold() == question_id.casefold()
-                and _metric_key(_text(sheet.cell(r, layout.metric_col).value)) in keys
+        return [r for r, source_question, _, source_metric in _question_metric_rows(sheet, layout)
+                if source_question.casefold() == question_id.casefold()
+                and _metric_key(source_metric) in keys
                 and any(isinstance(sheet.cell(r, c).value, (int, float))
                         and not isinstance(sheet.cell(r, c).value, bool) for c in layout.product_cols)]
     question_type = _text(config.get("Type"))
     if question_type in {"Autres", "Bipolaire", "Listing", "Preference"}:
-        available = [_text(sheet.cell(r, layout.metric_col).value)
-                     for r in range(layout.header_row + 1, sheet.max_row + 1)
-                     if _text(sheet.cell(r, layout.metric_col - 1).value).casefold() == question_id.casefold()]
+        available = [source_metric
+                     for _, source_question, _, source_metric in _question_metric_rows(sheet, layout)
+                     if source_question.casefold() == question_id.casefold()]
         custom = _text(config.get("Custom metrics"))
         selected = (_standard_metrics_for_question(config, fallback) if custom
                     else default_metric_selection(question_type, available))
@@ -2128,8 +2156,15 @@ def _copy_sheet(source, target):
             new = target[cell.coordinate]
             new.value = cell.value
             if cell.has_style:
-                new._style = copy(cell._style)
-            if cell.number_format:
+                # `_style` contains workbook-local indexes. Copying it directly
+                # into a new workbook can create invalid alignment/font/fill
+                # references and make openpyxl fail while saving. Assign the
+                # public components so the destination workbook registers them.
+                new.font = copy(cell.font)
+                new.fill = copy(cell.fill)
+                new.border = copy(cell.border)
+                new.alignment = copy(cell.alignment)
+                new.protection = copy(cell.protection)
                 new.number_format = cell.number_format
     for key, dim in source.column_dimensions.items():
         target.column_dimensions[key].width = dim.width
