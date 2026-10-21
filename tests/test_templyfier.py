@@ -16,6 +16,7 @@ from templyfier.preferences import (
 )
 from templyfier.smart import (
     _active_layout,
+    _excel_safe_value,
     _summary_higher_is_better,
     audit_input_plan,
     build_smart_toplines,
@@ -1090,3 +1091,8 @@ class TemplyfierRegressionTests(unittest.TestCase):
         self.assertEqual(cmr_benchmark_positions(matches), (0, 1))
         self.assertEqual(matches[0].formula_type, "Benchmark")
         self.assertEqual(matches[1].fr_land_id, "355433.0")
+
+    def test_excel_safe_value_removes_invisible_control_characters(self):
+        self.assertEqual(_excel_safe_value("loss\x1f95%"), "loss95%")
+        self.assertEqual(_excel_safe_value("line one\nline two"), "line one\nline two")
+        self.assertEqual(_excel_safe_value(42), 42)
