@@ -8,6 +8,7 @@ from templyfier.smart import (
     _cmr_match_score,
     _embedded_data_sheets,
     CmrProduct,
+    CmrProductMatch,
     cmr_benchmark_positions,
     inspect_smart_package,
     match_cmr_products,
@@ -51,6 +52,13 @@ class CmrMatchingTests(unittest.TestCase):
 
         self.assertEqual([item.score for item in matches], [99, 99, 99])
         self.assertEqual(cmr_benchmark_positions(matches), (0, 1))
+
+    def test_explicit_cmr_control_alias_is_enough_at_medium_confidence(self):
+        matches = (
+            CmrProductMatch(product_key="A", source_name="A", formula_type="Market product", score=80),
+            CmrProductMatch(product_key="B", source_name="B", formula_type="Candidate", score=100),
+        )
+        self.assertEqual(cmr_benchmark_positions(matches), (0,))
 
     def test_exact_duplicate_cmr_rows_are_safely_deduplicated(self):
         row = ["A26", "ABC123", "Benchmark A", "Description", "Benchmark", 356897]

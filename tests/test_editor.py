@@ -71,6 +71,23 @@ class EditorTests(unittest.TestCase):
     def test_numbered_top_word_is_not_an_aggregate(self):
         self.assertNotEqual(_metric_key('1-On top of the bottle'),_metric_key('Top Box'))
 
+    def test_metric_aliases_and_mean_only_scales_are_understood(self):
+        aliases = {
+            'Average': 'mean', 'T1B': 'top_1', 'T2B': 'top_2',
+            'Top 3 boxes': 'top_3', 'B1B': 'bottom_1', 'B2B': 'bottom_2',
+        }
+        self.assertEqual({value: _metric_key(value) for value in aliases}, aliases)
+        self.assertEqual(
+            _classify('Q-10-Overall liking', '', ['Average', '1-Poor', '2-Fair', '3-Good'])[0],
+            'Standard',
+        )
+
+    def test_unknown_question_never_gets_an_empty_recipe_when_results_exist(self):
+        self.assertEqual(
+            default_metric_selection('Autres', ['Average', 'T2B', 'B2B']),
+            ['Average', 'T2B', 'B2B'],
+        )
+
     def test_gap_and_paired_delta_formulas_stay_blank_when_a_score_is_missing(self):
         rows = export_rows([self.rows[0]])
         for test_type in ('Monadic', 'Paired'):

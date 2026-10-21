@@ -49,7 +49,7 @@ def _question_content_signature(frame):
 
 def _support_code(phase: str, file_key: str, exc: Exception) -> str:
     """Create a deterministic, data-free reference for support conversations."""
-    payload = f"v86|{phase}|{file_key}|{type(exc).__name__}|{exc}"
+    payload = f"v87|{phase}|{file_key}|{type(exc).__name__}|{exc}"
     return "TMP-" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:10].upper()
 
 
@@ -273,7 +273,10 @@ def render_smart_mode():
     if detected_codes:
         st.caption("Benchmarks detected automatically: " + " | ".join(detected_codes))
     else:
-        st.warning("No benchmark could be identified automatically in these outputs.", icon=":material/warning:")
+        st.caption(
+            "The technical benchmark flag is not present in the uploaded files. "
+            "Templyfier will ask for one quick confirmation below."
+        )
     unmatched_cmr = [item for item in state.get("cmr_matches", ()) if item.score < 80]
     if unmatched_cmr:
         st.warning(
@@ -463,6 +466,28 @@ def render_smart_mode():
         else:
             detected_positions = list(cmr_benchmark_positions(cmr_matches))
             benchmark_source = "cmr"
+        if not detected_positions:
+            suggested_count = min(max(int(info.suggested_benchmark_count or 1), 1), len(product_options))
+            saved_fallback = [
+                int(position) for position in settings.get("fallback_benchmark_positions", [])
+                if isinstance(position, int) and 0 <= position < len(product_options)
+            ]
+            default_positions = saved_fallback or list(range(suggested_count))
+            default_labels = [list(product_options)[position] for position in default_positions]
+            st.warning(
+                "Please confirm the benchmark product(s). Templyfier could not read a reliable technical flag, "
+                "so the first product is proposed and remains editable.",
+                icon=":material/checklist:",
+            )
+            fallback_labels = st.multiselect(
+                "Benchmark product(s)",
+                list(product_options),
+                default=default_labels,
+                key=f"smart_fallback_benchmarks_{key}",
+                help="This appears only when neither G-Sight nor the CMR contains a reliable benchmark flag.",
+            )
+            detected_positions = [product_options[label] for label in fallback_labels]
+            benchmark_source = "confirmed"
         benchmark_labels = [list(product_options)[position] for position in detected_positions]
         benchmark_count = len(benchmark_labels)
         columns = benchmark_layout == "All benchmarks side by side"
@@ -476,12 +501,12 @@ def render_smart_mode():
         ]
         if benchmark_labels:
             st.caption(
-                f"Automatic benchmark detection ({'G-Sight' if benchmark_source == 'g-sight' else 'CMR'}): "
+                f"Benchmark selection ({'G-Sight' if benchmark_source == 'g-sight' else 'CMR' if benchmark_source == 'cmr' else 'confirmed'}): "
                 f"{benchmark_count} benchmark(s) - "
                 + " | ".join(benchmark_short_labels)
             )
         else:
-            st.error("Automatic benchmark detection failed. Check that each G-Sight output contains its comparison columns.")
+            st.error("Select at least one benchmark product to continue.")
         paired_swaps = {}
         paired_mappings = {}
     else:
@@ -699,6 +724,7 @@ def render_smart_mode():
         "benchmark_sheet_mode": benchmark_sheet_mode,
         "benchmark_labels": benchmark_short_labels,
         "benchmark_keys": [canonical_keys[product_options[label]] for label in benchmark_labels],
+        "fallback_benchmark_positions": list(benchmark_positions) if benchmark_source == "confirmed" else [],
         "include_screeners": include_screeners,
         "study_format": study_format,
         "clt_block_design": locals().get("block_design", "unknown"),

@@ -657,10 +657,14 @@ def match_cmr_products(
 
 def cmr_benchmark_positions(matches: Sequence[CmrProductMatch]) -> tuple[int, ...]:
     """Return reliable benchmark positions declared explicitly by the CMR."""
+    benchmark_words = re.compile(
+        r"\b(?:benchmark|bench\s*mark|bm|control|reference|market\s+product|"
+        r"current\s+product|competitor|temoin|reference\s+marche)\b"
+    )
     return tuple(
         index
         for index, match in enumerate(matches)
-        if match.score >= 95 and "benchmark" in _normal(match.formula_type)
+        if match.score >= 80 and benchmark_words.search(_normal(match.formula_type))
     )
 
 
@@ -1017,12 +1021,28 @@ def _metric_key(metric: str) -> str:
     french_box = french_box_key(norm)
     if french_box:
         return french_box
-    if norm in {"mean", "moyenne", "promedio", "media", "mittelwert"}:
+    if norm in {
+        "mean", "average", "avg", "arithmetic mean", "moyenne",
+        "moyenne arithmetique", "score moyen", "promedio", "media", "mittelwert",
+    }:
         return "mean"
     # A numbered answer mentioning 'top', 'bottom', 'haut' or 'bas' is
     # still an individual answer, never an aggregate box.
     if re.match(r"^\d+\s", norm):
         return norm
+    # G-Sight configurations are not consistent in the way aggregate boxes
+    # are named. Normalise frequent compact variants first.
+    compact = re.sub(r"[^a-z0-9]+", "", norm)
+    compact_boxes = {
+        "tb": "top_1", "t1b": "top_1", "topbox": "top_1", "top1box": "top_1",
+        "t2b": "top_2", "top2box": "top_2", "top2boxes": "top_2", "toptwoboxes": "top_2",
+        "t3b": "top_3", "top3box": "top_3", "top3boxes": "top_3", "topthreeboxes": "top_3",
+        "bb": "bottom_1", "b1b": "bottom_1", "bottombox": "bottom_1", "bottom1box": "bottom_1",
+        "b2b": "bottom_2", "bottom2box": "bottom_2", "bottom2boxes": "bottom_2", "bottomtwoboxes": "bottom_2",
+        "b3b": "bottom_3", "bottom3box": "bottom_3", "bottom3boxes": "bottom_3", "bottomthreeboxes": "bottom_3",
+    }
+    if compact in compact_boxes:
+        return compact_boxes[compact]
     direction = "top" if any(word in norm for word in ("top", "haut", "superieur")) else "bottom" if any(word in norm for word in ("bottom", "bas", "inferieur")) else ""
     if direction:
         number = "3" if re.search(r"\b3\b", norm) else "2" if re.search(r"\b2\b", norm) else "1"
@@ -1574,9 +1594,9 @@ def _classify(question_id: str, mapped_kpi: str, metrics: Sequence[str]) -> tupl
         for metric in normalized_metrics
     )
     direct_strength = (
-        any("too weak" in metric or "trop faible" in metric for metric in normalized_metrics)
-        and any("just about right" in metric or "just right" in metric or "juste" in metric for metric in normalized_metrics)
-        and any("too strong" in metric or "trop fort" in metric for metric in normalized_metrics)
+        any(re.search(r"\b(?:too\s+)?weak\b|\bfaible\b", metric) for metric in normalized_metrics)
+        and any(any(word in metric for word in jar_words) for metric in normalized_metrics)
+        and any(re.search(r"\b(?:too\s+)?strong\b|\bfort(?:e)?\b", metric) for metric in normalized_metrics)
     )
     strength_word = any(word in combined for word in ("intens", "strength", "puissance", "forte", "strong"))
 
@@ -1593,7 +1613,13 @@ def _classify(question_id: str, mapped_kpi: str, metrics: Sequence[str]) -> tupl
         return "Strength", "�lev�e"
     if strength_word and has_box:
         return "Strength", "Moyenne"
-    if response_codes and (not has_mean or any(word in combined for word in ("listing", "list of", "select all", "which of"))):
+    if response_codes and any(word in combined for word in ("listing", "list of", "select all", "which of")):
+        return "Listing", "Moyenne"
+    # A classical scale can be exported with a Mean but without precomputed
+    # box rows. It is still Standard and its Mean must stay available.
+    if has_mean:
+        return "Standard", "�lev�e" if len(response_codes) >= 3 else "Moyenne"
+    if response_codes and not has_mean:
         return "Listing", "Moyenne"
     if has_mean and has_box:
         return "Standard", "�lev�e"
@@ -2154,7 +2180,10 @@ def default_metric_selection(question_type, available):
     if question_type == "Delete":
         return []
     numbered = [m for m in metrics if re.match(r"^\d+\s", _normal(m)) and not re.fullmatch(r'(?:top|bottom)_[123]',_metric_key(m))]
-    return numbered or [m for m in metrics if _metric_key(m) not in {"mean", "top_1", "top_2", "top_3", "bottom_1", "bottom_2", "bottom_3"}]
+    non_aggregate = [m for m in metrics if _metric_key(m) not in {"mean", "top_1", "top_2", "top_3", "bottom_1", "bottom_2", "bottom_3"}]
+    # Unknown wording must never turn a valid numeric question into a blocking
+    # empty recipe. If only aggregate rows exist, keep them all for CMI review.
+    return numbered or non_aggregate or metrics
 
 
 def configured_source_rows(sheet, layout, config, fallback):

@@ -19,10 +19,12 @@ def render_type_metric_editor(rows, key, revision, commit=None):
         'Set the default once for every question type. These defaults are applied automatically; '
         'you can still change the Metrics cell of any question in the table below.'
     )
+    detected_counts = {kind: sum(row.get('Type') == kind for row in kept) for kind in QUESTION_TYPES}
+    first_detected_type = max(QUESTION_TYPES, key=lambda kind: detected_counts[kind])
     selected_type = st.segmented_control(
         'Question type recipe', list(QUESTION_TYPES),
         format_func=lambda value: TEXT.get(value, value),
-        default=QUESTION_TYPES[0], key=f'type_metric_kind_{key}_{revision}',
+        default=first_detected_type, key=f'type_metric_kind_{key}_{revision}',
     )
     candidates = [row for row in kept if row['Type'] == selected_type]
     type_display = TEXT.get(selected_type, selected_type)
@@ -36,7 +38,7 @@ def render_type_metric_editor(rows, key, revision, commit=None):
             'Preference': 'All individual products or preference options.',
             'Autres': 'All individual project-specific response options.',
         }
-        st.info(
+        st.caption(
             f'No {type_display} question is currently detected. Its preset is already ready: '
             f'{defaults[selected_type]} If you change a question to this type in the table, '
             'Templyfier applies this preset automatically.'
@@ -62,7 +64,7 @@ def render_type_metric_editor(rows, key, revision, commit=None):
                 'Toutes les questions de ce type',
             )
             if commit is not None:
-                skipped = sum(item['Résultat'].startswith('Inchangée') for item in preview)
+                skipped = sum(item['R�sultat'].startswith('Inchang�e') for item in preview)
                 commit(
                     changed,
                     f'Metric recipe applied to {type_display}; '
@@ -173,7 +175,7 @@ def render_metric_editor(rows, key, revision, commit):
         with st.container(border=True):
             st.markdown('**Check the grouped change**')
             st.dataframe(pd.DataFrame(pending['preview']),hide_index=True,width='stretch',height=min(330,38+35*len(pending['preview'])))
-            skipped=sum(p['Résultat'].startswith('Inchangée') for p in pending['preview'])
+            skipped=sum(p['R�sultat'].startswith('Inchang�e') for p in pending['preview'])
             if skipped:st.warning(f'{skipped} question(s) were left unchanged because no complete, safe match was available.')
             st.caption('No other question will change. Generation stays paused until you confirm or cancel this change.')
             with st.container(horizontal=True):
@@ -183,3 +185,4 @@ def render_metric_editor(rows, key, revision, commit):
                 if st.button('Cancel grouped change',key=f'cancel_metric_batch_{key}'):
                     st.session_state.pop(pending_key,None)
                     st.session_state[f'editor_refresh_{key}']=True
+
