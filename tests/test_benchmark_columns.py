@@ -35,19 +35,19 @@ class BenchmarkColumnsTests(unittest.TestCase):
         wb=load_workbook(BytesIO(fixture()));ws=wb.active
         ws['A2']=None
         ws['C3']='Filters: S-1-REGION: North; Search: S-2-USAGE: Heavy users'
-        self.assertEqual(_split_detection(ws,'export.xlsx'),('NORTH · HEAVY USERS','High confidence'))
+        self.assertEqual(_split_detection(ws,'export.xlsx'),('NORTH � HEAVY USERS','High confidence'))
 
     def test_french_filter_can_move_deeper_in_header(self):
         wb=load_workbook(BytesIO(fixture()));ws=wb.active
         ws['A2']=None
         ws['J12']='Filtres: S-1-REGION: North; Recherche: S-2-USAGE: Heavy users'
-        self.assertEqual(_split_detection(ws,'export.xlsx'),('NORTH · HEAVY USERS','High confidence'))
+        self.assertEqual(_split_detection(ws,'export.xlsx'),('NORTH � HEAVY USERS','High confidence'))
 
     def test_separate_filter_cells_are_combined_without_losing_a_dimension(self):
         wb=load_workbook(BytesIO(fixture()));ws=wb.active
         ws['A2']='Search: S-1-REGION: North'
         ws['B2']='Filter: S-2-USAGE: Heavy users'
-        self.assertEqual(_split_detection(ws,'export.xlsx'),('NORTH · HEAVY USERS','High confidence'))
+        self.assertEqual(_split_detection(ws,'export.xlsx'),('NORTH � HEAVY USERS','High confidence'))
 
     def test_stage_can_move_and_use_a_french_label(self):
         wb=load_workbook(BytesIO(fixture()));ws=wb.active
@@ -239,3 +239,11 @@ class BenchmarkColumnsTests(unittest.TestCase):
             wb=load_workbook(BytesIO(data))
             formulas=[c for s in wb for row in s for c in row if c.data_type=='f']
             self.assertEqual(bool(formulas),enabled)
+            if enabled:
+                point_delta = next(
+                    cell for cell in formulas
+                    if wb.active.cell(cell.row, 2).value != 'Mean'
+                )
+                self.assertEqual(point_delta.number_format, '+0 "pts";-0 "pts";0 "pts"')
+                self.assertIsNone(point_delta.fill.fill_type)
+

@@ -2294,7 +2294,7 @@ def _style_difference_cell(
     if is_mean:
         cell.number_format = mean_format
         return
-    cell.number_format = '+0.0 "pts";-0.0 "pts";0.0 "pts"'
+    cell.number_format = '+0 "pts";-0 "pts";0 "pts"'
     if not (
         isinstance(candidate_value, (int, float))
         and not isinstance(candidate_value, bool)
@@ -2672,8 +2672,6 @@ def _build_paired_toplines(
                     )
                     if fill is not None:
                         target.cell(output_row, block["candidate"]).fill = fill
-                        if block["delta"] is not None:
-                            target.cell(output_row, block["delta"]).fill = copy(fill)
                 _format_variable_label(target, output_row)
                 summary_question_rows.setdefault(question_id.casefold(), []).append((output_row, source_metric))
                 output_row += 1
@@ -3757,7 +3755,6 @@ def build_smart_toplines(
                                 )
                                 if fill is not None:
                                     value_cell.fill = fill
-                                    gap_cell.fill = copy(fill)
                             if not block["gaps"] and active_benchmarks:
                                 fill = _benchmark_fill(
                                     source_workbooks[file_index],

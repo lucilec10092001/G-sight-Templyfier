@@ -162,7 +162,8 @@ class EditorTests(unittest.TestCase):
         percent_gap = next(cell for cell in formula_cells if sheet.cell(cell.row, 2).value != 'Mean')
         self.assertNotIn('*100', mean_gap.value)
         self.assertIn('*100', percent_gap.value)
-        self.assertIn('pts', percent_gap.number_format)
+        self.assertEqual(percent_gap.number_format, '+0 "pts";-0 "pts";0 "pts"')
+        self.assertIsNone(percent_gap.fill.fill_type)
         self.assertTrue(percent_gap.font.bold)
         self.assertEqual(percent_gap.font.color.rgb[-6:], '008A3B')
 
@@ -229,7 +230,7 @@ class EditorTests(unittest.TestCase):
     def test_grouped_single_metric_can_also_be_renamed(self):
         from templyfier.smart import grouped_metric_label
         config={'Display label':'Colour','Metric label':'A1','Metric labels':{'2-Yes':'Chosen'}}
-        self.assertEqual(grouped_metric_label(config,'2-Yes',1),'A1 · Chosen')
+        self.assertEqual(grouped_metric_label(config,'2-Yes',1),'A1 � Chosen')
 
     def test_partial_profile_new_rows_do_not_create_nan_groups(self):
         import pandas as pd
@@ -295,7 +296,7 @@ class RealDataTests(unittest.TestCase):
             standard_metrics=AGG,include_screeners=False,show_monadic_gaps=True)
         ws=load_workbook(BytesIO(data)).active
         self.assertEqual(ws['N7'].fill.fgColor.rgb.upper(),'0000FF00')
-        self.assertEqual(ws['O7'].fill.fgColor.rgb.upper(),'0000FF00')
+        self.assertFalse(ws['O7'].fill.patternType)
         self.assertFalse(ws['I7'].fill.patternType)
         data,_=build_smart_toplines([(path.name,path.read_bytes())],[row],split_names=['TOTAL'],benchmark_positions=[0],
             standard_metrics=AGG,include_screeners=False,show_monadic_gaps=False)
@@ -319,3 +320,4 @@ class RealDataTests(unittest.TestCase):
 
 
 if __name__=='__main__':unittest.main()
+

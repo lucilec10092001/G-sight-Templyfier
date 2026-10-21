@@ -1,4 +1,4 @@
-# G-Sight Templyfier v85
+# G-Sight Templyfier v86
 
 Templyfier turns G-Sight DataViz outputs into editable Excel toplines for consumer research studies. The interface is in English and the question detection supports English and French source wording. No consumer files or credentials are included in this repository.
 
@@ -65,5 +65,5 @@ For an internal server deployment, follow `SERVER_DEPLOYMENT.md`. The current pu
 
 ## Validation
 
-Version 85 supports consolidated G-Sight workbooks containing multiple 2-tailed split tabs while excluding their 1-tailed, delta and legend companions. See `CHANGES_v85.md` and `VALIDATION_v85.md`.
+Version 86 keeps delta columns visually clear and displays percentage-point differences as rounded whole points. See `CHANGES_v86.md` and `VALIDATION_v86.md`.
 
