@@ -25,8 +25,15 @@ from templyfier.smart import (
 )
 
 
+# Increment whenever parsing/classification semantics change. Streamlit keeps
+# session_state across a hot app redeploy; without this salt, users re-uploading
+# the same files can unknowingly keep an obsolete analysis from the prior release.
+ANALYSIS_SCHEMA_VERSION = "v88"
+
+
 def _files_key(files, profile=None, cmr=None, local_profile_name="", local_profile=None):
     digest = hashlib.sha1()
+    digest.update(ANALYSIS_SCHEMA_VERSION.encode("utf-8"))
     for item in files:
         digest.update(item.name.encode("utf-8"))
         digest.update(item.getvalue())
@@ -49,7 +56,7 @@ def _question_content_signature(frame):
 
 def _support_code(phase: str, file_key: str, exc: Exception) -> str:
     """Create a deterministic, data-free reference for support conversations."""
-    payload = f"v87|{phase}|{file_key}|{type(exc).__name__}|{exc}"
+    payload = f"v88|{phase}|{file_key}|{type(exc).__name__}|{exc}"
     return "TMP-" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:10].upper()
 
 
