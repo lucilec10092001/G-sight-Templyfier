@@ -146,7 +146,7 @@ def _apply_selected_metrics(rows, selected_ids, chosen, labels=None):
 
 def render_question_editor(frame, proposals, key, memory=None, protected_ids=(), project_key=None,
                            show_optional=True, stage_order=()):
-    """Render one calm review surface for all question-level decisions."""
+    """Render one calm review surface for sections, item families and questions."""
     model_key = f"question_model_{key}"
     if model_key not in st.session_state:
         initial_rows = prepare_rows(frame.to_dict("records"), proposals, stage_order)
