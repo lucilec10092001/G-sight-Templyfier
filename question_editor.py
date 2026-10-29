@@ -317,10 +317,14 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
                 "Variable / item shown in Excel", required=True, width="large"
             ),
             "Group": st.column_config.TextColumn(
-                "Group shown in Excel", width="medium",
-                help="Use the same group name on several rows to group them together.",
+                "Item family (optional)", width="medium",
+                help=("Use only for true one-result item batteries such as Color or Olfactive Attributes. "
+                      "Leave blank for ordinary questions; it does not replace the Section."),
             ),
-            "Section": st.column_config.TextColumn("Section shown in Excel", width="medium"),
+            "Section": st.column_config.TextColumn(
+                "Section header shown in Excel", width="medium",
+                help="This is the purple section header in Excel. Select related rows to rename it consistently.",
+            ),
             "Stage": st.column_config.TextColumn(
                 width="small", help="Type any study-specific stage. Use a semicolon for several stages."
             ),
