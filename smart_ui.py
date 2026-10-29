@@ -29,7 +29,7 @@ from templyfier.smart import (
 # Increment whenever parsing/classification semantics change. Streamlit keeps
 # session_state across a hot app redeploy; without this salt, users re-uploading
 # the same files can unknowingly keep an obsolete analysis from the prior release.
-ANALYSIS_SCHEMA_VERSION = "v92"
+ANALYSIS_SCHEMA_VERSION = "v93"
 
 
 LOGGER = logging.getLogger("templyfier.smart_ui")
@@ -58,9 +58,16 @@ def _question_content_signature(frame):
     return hashlib.sha1(content.to_json(orient='records').encode('utf-8')).hexdigest()
 
 
+def _question_output_signature(frame):
+    """Fingerprint every question choice that can change the generated workbook."""
+    return hashlib.sha1(
+        frame.to_json(orient="records", force_ascii=False).encode("utf-8")
+    ).hexdigest()
+
+
 def _support_code(phase: str, file_key: str, exc: Exception) -> str:
     """Create a deterministic, data-free reference for support conversations."""
-    payload = f"v92|{phase}|{file_key}|{type(exc).__name__}|{exc}"
+    payload = f"v93|{phase}|{file_key}|{type(exc).__name__}|{exc}"
     return "TMP-" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:10].upper()
 
 
@@ -355,6 +362,17 @@ def render_smart_mode():
         protected_ids=state.get("profile_protected_ids", []), project_key=_files_key(exports),
         show_optional=False, stage_order=clt_stage_order,
     )
+    question_output_signature = _question_output_signature(question_table)
+    result_key = f"smart_result_{key}"
+    report_key = f"smart_report_{key}"
+    result_signature_key = f"smart_result_question_signature_{key}"
+    if st.session_state.get(result_key) and (
+        st.session_state.get(result_signature_key) != question_output_signature
+    ):
+        st.session_state.pop(result_key, None)
+        st.session_state.pop(report_key, None)
+        st.session_state.pop(result_signature_key, None)
+        st.info("Question changes saved. Generate again to refresh the downloadable workbook.")
     product_options = {
         f"{index + 1}. {name[:70]}": index
         for index, name in enumerate(info.product_names)
@@ -947,16 +965,17 @@ def render_smart_mode():
                 )
                 st.write("Calculating gaps, significance and the KPI Summary")
                 status.update(label="Toplines ready", state="complete", expanded=False)
-            st.session_state[f"smart_result_{key}"] = result
-            st.session_state[f"smart_report_{key}"] = report
+            st.session_state[result_key] = result
+            st.session_state[report_key] = report
+            st.session_state[result_signature_key] = question_output_signature
         except TemplyfierError as exc:
             _show_safe_error("generation", key, exc)
         except Exception as exc:
             _show_safe_error("generation", key, exc)
 
-    if st.session_state.get(f"smart_result_{key}") and not pending_metrics:
-        generated_payload = st.session_state[f"smart_result_{key}"]
-        report = st.session_state[f"smart_report_{key}"]
+    if st.session_state.get(result_key) and not pending_metrics:
+        generated_payload = st.session_state[result_key]
+        report = st.session_state[report_key]
         st.success(
             f"File ready: {report['test_type']}, {report['questions']} selected questions and {len(report['splits'])} generated worksheets.",
             icon=":material/check_circle:",
