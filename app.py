@@ -45,7 +45,7 @@ st.markdown(
     </style>
     <div class="hero">
       <h1>G-Sight Templyfier <span style="font-size:.85rem;opacity:.75">v96</span></h1>
-      <p>Turn your G-Sight outputs into review-ready Excel toplines.</p>
+      <p>Turn your G-Sight outputs into review-ready Excel toplines.</p><!-- v96 -->
       <span class="privacy">&#128274; PRIVACY_TEXT</span>
     </div>
     """.replace("PRIVACY_TEXT", privacy_text),
