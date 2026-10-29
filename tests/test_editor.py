@@ -125,6 +125,19 @@ class EditorTests(unittest.TestCase):
                            if sheet.cell(row, 1).value in {'FRAGRANCE BENEFITS', 'PRODUCT BENEFITS'}]
         self.assertEqual(section_headers, ['FRAGRANCE BENEFITS', 'PRODUCT BENEFITS'])
 
+    def test_blank_section_never_creates_an_automatic_toplines_header(self):
+        rows = export_rows([self.rows[0]])
+        rows[0]['Section'] = ''
+        data, _ = build_smart_toplines(
+            [('test.xlsx', self.raw)], rows,
+            split_names=['TOTAL'], benchmark_positions=[0], standard_metrics=AGG,
+            include_screeners=False, include_sections=True,
+        )
+        sheet = load_workbook(BytesIO(data), data_only=False).active
+        values = [sheet.cell(row, 1).value for row in range(6, sheet.max_row + 1)]
+        self.assertNotIn('TOPLINES', values)
+        self.assertEqual(values[0], rows[0]['Display label'])
+
     def test_generated_excel_package_passes_integrity_check(self):
         rows = export_rows([self.rows[0]])
         data, _ = build_smart_toplines(
