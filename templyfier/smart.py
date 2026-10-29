@@ -921,12 +921,30 @@ def _detected_split_label(sheet) -> str:
     return friendly if friendly != "TOTAL" else _generic_split_label(sheet)
 
 
+def _leading_product_code(value) -> str:
+    """Return a compact G-Sight product code from a composite header.
+
+    Some exports put the technical code in the sample row (``155 - O1P``),
+    while others start the product name with it (``O1P 25% VE00971346``).
+    The latter is common in CLT files and must still be linkable to the
+    repeated comparison reference shown on the G-Sight header row.
+    """
+    match = re.match(r"^\s*([A-Z0-9]{2,12})(?=\s|$)", _text(value), flags=re.I)
+    if not match:
+        return ""
+    code = match.group(1).upper()
+    return code if any(char.isalpha() for char in code) and any(char.isdigit() for char in code) else ""
+
+
 def _comparison_codes(sheet, layout) -> tuple[str, ...]:
     product_codes = set()
     for col in layout.product_cols:
         match = re.search(r"-\s*([A-Z0-9]+)\s*$", _text(sheet.cell(layout.sample_row, col).value), flags=re.I)
         if match:
             product_codes.add(match.group(1).upper())
+        header_code = _leading_product_code(sheet.cell(layout.product_name_row, col).value)
+        if header_code:
+            product_codes.add(header_code)
     found = []
     for col in range(layout.metric_col + 1, sheet.max_column + 1):
         value = _text(sheet.cell(layout.product_header_row, col).value).upper()
@@ -993,6 +1011,15 @@ def _suggest_benchmark_count(inputs: Sequence["SmartInputInfo"]) -> int:
 def _product_keys(sheet, layout) -> tuple[str, ...]:
     keys = []
     paired_stage = _normal(_stage_name(sheet)) in {"neat", "damp wet", "wet"}
+    comparison_values = {
+        _text(sheet.cell(layout.product_header_row, col).value).upper()
+        for col in range(layout.metric_col + 1, sheet.max_column + 1)
+    }
+    header_codes = [
+        _leading_product_code(sheet.cell(layout.product_name_row, col).value)
+        for col in layout.product_cols
+    ]
+    composite_code_layout = any(code and code in comparison_values for code in header_codes)
     for position, col in enumerate(layout.product_cols):
         sample = _text(sheet.cell(layout.sample_row, col).value)
         match = re.search(r"-\s*([A-Z0-9]+)\s*$", sample, flags=re.I)
@@ -1001,6 +1028,8 @@ def _product_keys(sheet, layout) -> tuple[str, ...]:
             if paired_stage and code.endswith(("N", "W")):
                 code = code[:-1]
             keys.append(code)
+        elif composite_code_layout and header_codes[position]:
+            keys.append(header_codes[position])
         else:
             keys.append(_normal(_product_names(sheet, layout)[position]))
     return tuple(keys)
@@ -3188,7 +3217,11 @@ def _write_summary_block(
         product_cell.border = Border(left=thin, right=thin, top=thin, bottom=thin)
         sheet.row_dimensions[row].height = 34
         block = record["column_blocks"][position]
-        signal_col = block["gaps"][benchmark_offset] if block["gaps"] else block["value"]
+        # Significance belongs to the candidate result cell. Gap columns are a
+        # presentation option and intentionally carry no colour in the clean
+        # workbook, so using them here would turn every KPI into parity whenever
+        # gaps are displayed.
+        signal_col = block["value"]
         benchmark_value_col = (
             block.get("benchmark")
             if benchmark_position == -1
