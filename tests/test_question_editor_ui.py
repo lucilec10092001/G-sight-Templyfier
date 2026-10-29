@@ -1,9 +1,13 @@
 import unittest
 
+import pandas as pd
+
 from question_editor import (
-    _apply_selected_metrics, _apply_table_metric_edit, _selected_cell_changes,
+    _apply_group_wide_table_edits, _apply_selected_metrics, _apply_table_metric_edit,
+    _selected_cell_changes,
 )
 from .test_client_memory import row
+from smart_ui import _question_output_signature
 
 
 class QuestionEditorUiTests(unittest.TestCase):
@@ -79,6 +83,47 @@ class QuestionEditorUiTests(unittest.TestCase):
         self.assertEqual(skipped, ["Q-2"])
         self.assertEqual(changed[1]["Selected metrics"], ["Top Box"])
 
+    def test_renaming_one_group_cell_keeps_all_group_members_together(self):
+        rows = [
+            dict(row("Q-1"), **{"Group ID": "old", "Display label": "Fragrance characteristics",
+                                "Metric label": "Floral", "Section": "PRODUCT BENEFITS"}),
+            dict(row("Q-2"), **{"Group ID": "old", "Display label": "Fragrance characteristics",
+                                "Metric label": "Fresh", "Section": "PRODUCT BENEFITS"}),
+        ]
+        original = [
+            {"G-Sight question": "Q-1", "Group": "Fragrance characteristics",
+             "Section": "PRODUCT BENEFITS"},
+            {"G-Sight question": "Q-2", "Group": "Fragrance characteristics",
+             "Section": "PRODUCT BENEFITS"},
+        ]
+        edited = [dict(original[0], Group="Fragrance attributes", Section="FRAGRANCE"), original[1]]
+        changed = [dict(item) for item in rows]
+        # The directly edited row has already been updated by the table loop.
+        changed[0].update({"Display label": "Fragrance attributes", "Section": "FRAGRANCE",
+                           "Group ID": "new"})
+        _apply_group_wide_table_edits(changed, rows, original, edited)
+        self.assertEqual({item["Display label"] for item in changed}, {"Fragrance attributes"})
+        self.assertEqual({item["Section"] for item in changed}, {"FRAGRANCE"})
+        self.assertEqual(len({item["Group ID"] for item in changed}), 1)
+
+    def test_download_signature_changes_for_order_labels_and_sections(self):
+        base = pd.DataFrame([
+            {"Question ID": "Q-1", "Order": 1, "Display label": "Old", "Section": "OLD"},
+            {"Question ID": "Q-2", "Order": 2, "Display label": "Second", "Section": "OLD"},
+        ])
+        signatures = {_question_output_signature(base)}
+        reordered = base.iloc[::-1].copy()
+        reordered["Order"] = [1, 2]
+        signatures.add(_question_output_signature(reordered))
+        renamed = base.copy()
+        renamed.loc[0, "Display label"] = "New"
+        signatures.add(_question_output_signature(renamed))
+        moved = base.copy()
+        moved.loc[0, "Section"] = "NEW"
+        signatures.add(_question_output_signature(moved))
+        self.assertEqual(len(signatures), 4)
+
 
 if __name__ == "__main__":
     unittest.main()
+
