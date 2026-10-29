@@ -1,4 +1,4 @@
-# G-Sight Templyfier v91
+# G-Sight Templyfier v92
 
 Templyfier turns G-Sight DataViz outputs into editable Excel toplines for consumer research studies. The interface is in English and the question detection supports English and French source wording. No consumer files or credentials are included in this repository.
 
@@ -65,5 +65,5 @@ For an internal server deployment, follow `SERVER_DEPLOYMENT.md`. The current pu
 
 ## Validation
 
-Version 91 restores KPI Summary significance when gap columns are displayed and recognises repeated benchmark codes in composite G-Sight product headers. See `CHANGES_v91.md` and `VALIDATION_v91.md`.
+Version 92 makes the split/benchmark audit display tolerant of translated status-column names, preventing a UI-only KeyError on valid multi-split studies. See `CHANGES_v92.md` and `VALIDATION_v92.md`.
 
