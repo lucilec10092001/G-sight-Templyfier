@@ -121,7 +121,7 @@ class SmartInputInfo:
     counts: tuple[int | None, ...]
     product_names: tuple[str, ...]
     source_sheet: str = ""
-    role: str = "Résultats"
+    role: str = "R�sultats"
     stage: str = ""
     embedded_split_count: int = 1
     comparison_codes: tuple[str, ...] = ()
@@ -203,30 +203,30 @@ def audit_input_plan(
     paired_mappings: dict[str, Sequence[Sequence[int]]] | None = None,
 ) -> dict:
     """Reconcile files, splits, benchmarks and product plans before export."""
-    inputs = [item for item in info.inputs if item.role == "Résultats"] or list(info.inputs)
+    inputs = [item for item in info.inputs if item.role == "R�sultats"] or list(info.inputs)
     names = [_text(value) for value in split_names]
     blockers: list[str] = []
     warnings: list[str] = []
     rows: list[dict] = []
     if len(names) != len(inputs):
-        blockers.append("Le nombre de noms de splits ne correspond pas au nombre d’exports de résultats.")
+        blockers.append("Le nombre de noms de splits ne correspond pas au nombre d'exports de r�sultats.")
         names = [item.split_name for item in inputs]
     if not inputs:
-        return {"rows": rows, "blockers": ["Aucun export de résultats détecté."], "warnings": [], "ready": False}
+        return {"rows": rows, "blockers": ["Aucun export de r�sultats d�tect�."], "warnings": [], "ready": False}
 
     for item in inputs:
         known_bases = [value for value in item.counts if isinstance(value, int)]
         if any(value <= 0 for value in known_bases):
-            blockers.append(f"Base nulle détectée dans {item.filename}.")
+            blockers.append(f"Base nulle d�tect�e dans {item.filename}.")
         positive_bases = [value for value in known_bases if value > 0]
         if not positive_bases:
             warnings.append(
-                f"Aucune base chiffrée n'a pu être lue dans {item.filename}; les scores restent utilisables."
+                f"Aucune base chiffr�e n'a pu �tre lue dans {item.filename}; les scores restent utilisables."
             )
         elif len(positive_bases) > 1 and max(positive_bases) / min(positive_bases) > 1.25:
             warnings.append(
-                f"Bases très différentes entre produits dans {item.filename} "
-                f"({min(positive_bases)} à {max(positive_bases)}). Vérifie le filtre G-Sight."
+                f"Bases tr�s diff�rentes entre produits dans {item.filename} "
+                f"({min(positive_bases)} � {max(positive_bases)}). V�rifie le filtre G-Sight."
             )
 
     canonical = inputs[0].product_keys
@@ -237,7 +237,7 @@ def audit_input_plan(
             and (Counter(item.product_keys) == Counter(canonical) if automatic_exports and not paired else item.product_keys == canonical)
         )
         if not paired and not same_plan:
-            blockers.append(f"Plan produits différent dans {item.filename}.")
+            blockers.append(f"Plan produits diff�rent dans {item.filename}.")
 
     if paired:
         for item, split in zip(inputs, names):
@@ -257,34 +257,34 @@ def audit_input_plan(
                 "Benchmark": f"{len(pairs)} internal pair(s)" if valid else "Pair mapping required",
                 "Export": item.filename,
                 "Produits": len(item.product_keys),
-                "Contrôle": "Prêt" if valid else "À corriger",
+                "Contr�le": "Pr�t" if valid else "� corriger",
             })
     elif automatic_exports:
         benchmark_keys = [canonical[position] for position in benchmark_positions if 0 <= position < len(canonical)]
         if not benchmark_keys:
-            blockers.append("Aucun benchmark valide n’a été identifié.")
+            blockers.append("Aucun benchmark valide n'a �t� identifi�.")
         split_order = list(dict.fromkeys(names))
         for split in split_order:
             indexes = [index for index, value in enumerate(names) if _normal(value) == _normal(split)]
             for benchmark_key in benchmark_keys:
                 matches = [index for index in indexes if benchmark_key in inputs[index].comparison_codes]
                 if len(matches) == 1:
-                    status = "Prêt"
+                    status = "Pr�t"
                     export_name = inputs[matches[0]].filename
                 elif not matches:
                     status = "Export manquant"
-                    export_name = "—"
+                    export_name = "-"
                     blockers.append(f"Export manquant : {split} vs {benchmark_key}.")
                 else:
                     status = "Doublon"
-                    export_name = " · ".join(inputs[index].filename for index in matches)
-                    blockers.append(f"Plusieurs exports détectés pour {split} vs {benchmark_key}.")
+                    export_name = " � ".join(inputs[index].filename for index in matches)
+                    blockers.append(f"Plusieurs exports d�tect�s pour {split} vs {benchmark_key}.")
                 rows.append({
                     "Split": split,
                     "Benchmark": benchmark_key,
                     "Export": export_name,
                     "Produits": len(canonical),
-                    "Contrôle": status,
+                    "Contr�le": status,
                 })
         unused = [
             item.filename for item in inputs
@@ -292,25 +292,25 @@ def audit_input_plan(
                        for code in item.comparison_codes)
         ]
         if unused:
-            warnings.append("Benchmark non rapproché dans : " + " · ".join(unused))
+            warnings.append("Benchmark non rapproch� dans : " + " � ".join(unused))
     else:
         duplicate_names = {
             name for name in names
             if sum(_normal(other) == _normal(name) for other in names) > 1
         }
         if duplicate_names:
-            blockers.append("Noms de splits en double : " + " · ".join(sorted(duplicate_names)))
+            blockers.append("Noms de splits en double : " + " � ".join(sorted(duplicate_names)))
         benchmark_keys = [canonical[position] for position in benchmark_positions if 0 <= position < len(canonical)]
         for item, split in zip(inputs, names):
             missing = [key for key in benchmark_keys if key not in item.comparison_codes]
             if missing:
-                warnings.append(f"{split} : significativité lue via les lettres G-Sight pour " + ", ".join(missing))
+                warnings.append(f"{split} : significativit� lue via les lettres G-Sight pour " + ", ".join(missing))
             rows.append({
                 "Split": split,
-                "Benchmark": " · ".join(benchmark_keys) or "—",
+                "Benchmark": " � ".join(benchmark_keys) or "-",
                 "Export": item.filename,
                 "Produits": len(item.product_keys),
-                "Contrôle": "Prêt",
+                "Contr�le": "Pr�t",
             })
     return {
         "rows": rows,
@@ -344,7 +344,7 @@ class CmrProductMatch:
     fr_land_id: str = ""
     suggested_label: str = ""
     matched_by: str = "Aucun rapprochement fiable"
-    confidence: str = "—"
+    confidence: str = "-"
     score: int = 0
 
 
@@ -650,7 +650,7 @@ def match_cmr_products(
             continue
         product, score, matched_by = assignment
         suggestion = _clean_fantasy_name(product.fantasy_name) or _cmr_benchmark_label(product)
-        confidence = "Élevée" if score >= 95 else "Moyenne" if score >= 80 else "Faible"
+        confidence = "�lev�e" if score >= 95 else "Moyenne" if score >= 80 else "Faible"
         matches.append(CmrProductMatch(
             product_key=key,
             source_name=name,
@@ -692,7 +692,7 @@ def _stage_name(sheet) -> str:
             if match and match.group(1).strip():
                 return match.group(1).strip()
     value = _text(sheet.cell(1, 1).value).strip()
-    return value or "Non précisé"
+    return value or "Non pr�cis�"
 
 
 def _embedded_data_sheets(workbook):
@@ -885,7 +885,7 @@ def _generic_split_label(sheet) -> str:
         clean = re.sub(r"\s+", " ", value).upper()
         if clean not in values:
             values.append(clean)
-    return " · ".join(values) or "TOTAL"
+    return " � ".join(values) or "TOTAL"
 
 
 def _split_detection(sheet, filename: str) -> tuple[str,str]:
@@ -958,13 +958,13 @@ def _suggest_test_type(inputs: Sequence["SmartInputInfo"]) -> str:
         "paired" in _normal(item.filename) or "paired" in _normal(item.stage)
         for item in inputs
     ):
-        return "Paired (à confirmer)"
+        return "Paired (� confirmer)"
     if any(item.comparison_codes for item in inputs):
         return "Monadic"
     product_counts = {len(item.product_keys) for item in inputs if item.product_keys}
     if product_counts and all(count % 2 == 0 for count in product_counts):
-        return "Paired (à confirmer)"
-    return "Monadic (à confirmer)"
+        return "Paired (� confirmer)"
+    return "Monadic (� confirmer)"
 
 
 def _embedded_sheets_are_consumer_splits(filename: str, sheets: Sequence) -> bool:
@@ -996,7 +996,7 @@ def _embedded_sheets_are_consumer_splits(filename: str, sheets: Sequence) -> boo
 
 
 def _suggest_benchmark_count(inputs: Sequence["SmartInputInfo"]) -> int:
-    result_inputs = [item for item in inputs if item.role == "Résultats"] or list(inputs)
+    result_inputs = [item for item in inputs if item.role == "R�sultats"] or list(inputs)
     explicit = max((len(item.comparison_codes) for item in result_inputs), default=1) or 1
     names = result_inputs[0].product_names if result_inputs else ()
     # A frequent G-Sight plan starts with two named market controls followed by
@@ -1046,7 +1046,7 @@ def _study_format(filenames: Sequence[str], stages: Sequence[str], max_rows: int
         return "CLT"
     if max_rows >= 700 and normalized_stages.issubset({"none", "use", "non precise"}):
         return "HUT / in-use"
-    return "À confirmer"
+    return "� confirmer"
 
 
 from .language import analysis_normal as _analysis_normal
@@ -1157,7 +1157,7 @@ def _suggest_section(question_id: str, label: str, question_type: str, mapped_kp
     if _is_maxdiff_question(question_id, label, mapped_kpi):
         return "HORS TOPLINES"
     if question_type == "Delete" and re.search(r"\b(?:other\s*\(?\s*precise|autre\s+preciser)\b", combined):
-        return "OPEN ENDS — HORS TOPLINES"
+        return "OPEN ENDS - HORS TOPLINES"
     if _color_code(question_id, label):
         return "FRAGRANCE CHARACTERISTICS"
     if question_type == "Attribute" and re.search(r"\bbenefits?\b", qid):
@@ -1275,7 +1275,7 @@ def _question_priority(question_id: str, label: str, section: str, first_row: in
     elif section == "PRODUCT EVALUATION" and any(word in combined for word in ("new different", "new & different")):
         rank = 135
     elif section == "FRAGRANCE STRENGTH" and re.match(r"q\s*16(?:\s|$)", qid) and "intensity" in combined:
-        # Common Paired HUT flow: OFO → liking touchpoint → overall intensity → strength touchpoints.
+        # Common Paired HUT flow: OFO  liking touchpoint  overall intensity  strength touchpoints.
         rank = 245
     elif section == "FIT" and re.search(r"\b(?:neat|wet|damp)\b", combined):
         rank = 430
@@ -1533,6 +1533,11 @@ def _attribute_display_labels(
         match = re.search(pattern, battery_source, flags=re.I)
         if match:
             return display_label, re.sub(r"\s+", " ", match.group(1)).strip(" -_:=")
+    # Ambiguous isolated attributes must stay independent. Broad automatic
+    # catch-all groups create misleading Excel headers and move the question
+    # name into the Metric column. The CMI can still group them explicitly.
+    if section == "PRODUCT BENEFITS":
+        return label, ""
     metric_label = re.sub(
         r"^(?:characters?|characteristics?|consumer perceptions?|emotions?|feelings?)\s*[-_:]?\s*",
         "",
@@ -1547,7 +1552,7 @@ def _attribute_display_labels(
         return "Fragrance Characteristics", metric_label
     if re.match(r"q\s*19(?:\s|$)", qid) or "perception" in _normal(label):
         return "Consumer Perceptions", metric_label
-    return "Fragrance Characteristics", metric_label
+    return label, ""
 
 
 def _cmi_role(proposal: QuestionProposal) -> str:
@@ -1555,31 +1560,31 @@ def _cmi_role(proposal: QuestionProposal) -> str:
     if proposal.section == "USAGE & CONTEXT" or proposal.question_type == "Delete":
         return "Question technique"
     if proposal.section in {"FRAGRANCE CHARACTERISTICS", "ATTRIBUTES"} or proposal.question_type == "Attribute":
-        return "Liste d’attributs"
+        return "Liste d'attributs"
     if proposal.section in {"PRODUCT BENEFITS", "FRAGRANCE BENEFITS"}:
-        return "Bénéfice évalué"
+        return "B�n�fice �valu�"
     if proposal.section in {"FRAGRANCE JOURNEY - LIKING", "FRAGRANCE JOURNEY - STRENGTH", "FRAGRANCE STRENGTH"}:
-        return "Mesure complémentaire"
+        return "Mesure compl�mentaire"
     if any(word in combined for word in (
         "overall product", "overall fragrance", "purchase intent", "expectation", "overall satisfaction",
         "overall softness", "scent experience overall", "fit to brand", " rcr", " opo", " ofo", " ofr",
     )):
         return "Indicateur principal"
-    return "Mesure complémentaire"
+    return "Mesure compl�mentaire"
 
 
 def _cmi_note(proposal: QuestionProposal) -> str:
     combined = _analysis_normal(f"{proposal.question_id} | {proposal.display_label} | {proposal.mapped_kpi}")
     if _is_maxdiff_question(proposal.question_id, proposal.display_label, proposal.mapped_kpi):
-        return "Question technique laissée de côté"
+        return "Question technique laiss�e de c�t�"
     if proposal.section == "USAGE & CONTEXT" or proposal.question_type == "Delete":
-        return "Hors toplines proposé ; disponible si le projet l’exige"
+        return "Hors toplines propos� ; disponible si le projet l'exige"
     if any(word in combined for word in (
         "comparison to current", "comparison with current", "comparison smell", "feeling about new",
         "feeling about the new",
         "preference", "perception mapping",
     )):
-        return "À confirmer selon l’objectif du projet"
+        return "� confirmer selon l'objectif du projet"
     return ""
 
 
@@ -1618,7 +1623,7 @@ def _classify(question_id: str, mapped_kpi: str, metrics: Sequence[str]) -> tupl
     normalized_metrics = [_analysis_normal(metric) for metric in metrics]
     combined = _analysis_normal(f"{question_id} {mapped_kpi}")
     if _is_maxdiff_question(question_id, humanize_question(question_id, mapped_kpi), mapped_kpi):
-        return "Delete", "Élevée"
+        return "Delete", "�lev�e"
     if re.search(r"\bother\s*\(?\s*precise\b", combined) or "autre preciser" in combined:
         return "Delete", "Moyenne"
     has_mean = any(_metric_key(metric) == "mean" for metric in metrics)
@@ -1643,16 +1648,16 @@ def _classify(question_id: str, mapped_kpi: str, metrics: Sequence[str]) -> tupl
     strength_word = any(word in combined for word in ("intens", "strength", "puissance", "forte", "strong"))
 
     if _preference_question(question_id, mapped_kpi, metrics):
-        return "Preference", "Élevée"
+        return "Preference", "�lev�e"
     # Comparative choices must not be collapsed into one CATA response.
     if _comparative_question(question_id, mapped_kpi, metrics):
         return "Autres", "Moyenne"
     if _bipolar_question(question_id, mapped_kpi, metrics):
         return "Bipolaire", "Moyenne"
     if response_codes == {1, 2} and any(re.match(r"^1\s+(?:no|non)(?:\s|$)", m) for m in normalized_metrics):
-        return "Attribute", "Élevée"
+        return "Attribute", "�lev�e"
     if jar or direct_strength:
-        return "Strength", "Élevée"
+        return "Strength", "�lev�e"
     if strength_word and has_box:
         return "Strength", "Moyenne"
     if response_codes and any(word in combined for word in ("listing", "list of", "select all", "which of")):
@@ -1660,11 +1665,11 @@ def _classify(question_id: str, mapped_kpi: str, metrics: Sequence[str]) -> tupl
     # A classical scale can be exported with a Mean but without precomputed
     # box rows. It is still Standard and its Mean must stay available.
     if has_mean:
-        return "Standard", "Élevée" if len(response_codes) >= 3 else "Moyenne"
+        return "Standard", "�lev�e" if len(response_codes) >= 3 else "Moyenne"
     if response_codes and not has_mean:
         return "Listing", "Moyenne"
     if has_mean and has_box:
-        return "Standard", "Élevée"
+        return "Standard", "�lev�e"
     if has_box:
         return "Standard", "Moyenne"
     return "Autres", "Faible"
@@ -1783,9 +1788,9 @@ def inspect_smart_package(raw_files: Sequence[tuple[str, object]]) -> SmartPacka
         embedded = _embedded_data_sheets(workbook)
         stage = _stage_name(sheet)
         max_rows = max(max_rows, sheet.max_row)
-        role = "Comparaison benchmark" if re.search(r"compar(?:aison|ison)?\s+bench", filename, flags=re.I) else "Résultats"
+        role = "Comparaison benchmark" if re.search(r"compar(?:aison|ison)?\s+bench", filename, flags=re.I) else "R�sultats"
         if re.search(r"all\s+splits", filename, flags=re.I) and len(raw_files) > 1:
-            role = "Consolidé de contrôle"
+            role = "Consolid� de contr�le"
         embedded_comparison_codes = tuple(dict.fromkeys(
             code
             for embedded_sheet in embedded
@@ -1802,7 +1807,7 @@ def inspect_smart_package(raw_files: Sequence[tuple[str, object]]) -> SmartPacka
     if study_format == "HUT / in-use":
         by_split: dict[str, list[int]] = {}
         for index, item in enumerate(candidates):
-            if item[5] == "Résultats":
+            if item[5] == "R�sultats":
                 by_split.setdefault(_detected_split_label(item[3]), []).append(index)
         for indexes in by_split.values():
             if len(indexes) < 2:
@@ -1819,7 +1824,7 @@ def inspect_smart_package(raw_files: Sequence[tuple[str, object]]) -> SmartPacka
                     row = list(candidates[index])
                     row[5] = "Comparaison benchmark"
                     candidates[index] = tuple(row)
-    result_candidates = [item for item in candidates if item[5] == "Résultats"] or candidates
+    result_candidates = [item for item in candidates if item[5] == "R�sultats"] or candidates
     _, filename, source, sheet, layout, _, _, _, _ = max(result_candidates, key=lambda item: item[0])
     inputs = []
     for score, item_filename, item_source, item_sheet, item_layout, role, stage, embedded_count, comparison_codes in candidates:
@@ -1827,7 +1832,7 @@ def inspect_smart_package(raw_files: Sequence[tuple[str, object]]) -> SmartPacka
         embedded_sheets = _embedded_data_sheets(item_workbook)
         split_sheets = (
             embedded_sheets
-            if role == "Résultats" and _embedded_sheets_are_consumer_splits(item_filename, embedded_sheets)
+            if role == "R�sultats" and _embedded_sheets_are_consumer_splits(item_filename, embedded_sheets)
             else (item_sheet,)
         )
         for split_sheet in split_sheets:
@@ -1872,19 +1877,19 @@ def inspect_smart_package(raw_files: Sequence[tuple[str, object]]) -> SmartPacka
         study_format = "HUT / in-use"
     unique_stages = tuple(dict.fromkeys(all_stages))
     unique_splits = tuple(dict.fromkeys(
-        item.split_name for item in inputs if item.role == "Résultats"
+        item.split_name for item in inputs if item.role == "R�sultats"
     )) or tuple(dict.fromkeys(all_splits))
     if len(unique_stages) > 1 and study_format != "HUT / in-use":
-        warnings.append("Plusieurs stages détectés : ils doivent être assemblés, pas traités comme des splits consommateurs.")
+        warnings.append("Plusieurs stages d�tect�s : ils doivent �tre assembl�s, pas trait�s comme des splits consommateurs.")
     if study_format == "HUT / in-use" and len(unique_stages) > 1:
         warnings.append("HUT reconnu : les valeurs Stage None/USE sont des configurations de comparaison benchmark, pas des touchpoints.")
     if max(item.embedded_split_count for item in inputs) > 1:
-        warnings.append("Plusieurs tables/splits sont intégrés dans chaque export G-Sight.")
+        warnings.append("Plusieurs tables/splits sont int�gr�s dans chaque export G-Sight.")
     if any(item.role == "Comparaison benchmark" for item in inputs):
-        warnings.append("Les fichiers de comparaison serviront aux couleurs de significativité, pas aux valeurs principales.")
+        warnings.append("Les fichiers de comparaison serviront aux couleurs de significativit�, pas aux valeurs principales.")
     uncertain_splits=[item.filename for item in inputs if item.split_detection=='Review recommended']
     if uncertain_splits:
-        warnings.append("Review the detected split for: " + " · ".join(uncertain_splits) + ". The proposed name comes from the filename and remains editable.")
+        warnings.append("Review the detected split for: " + " � ".join(uncertain_splits) + ". The proposed name comes from the filename and remains editable.")
     # Union of the questions across result exports: a boost-only question must
     # be proposed even when it does not exist in the TOTAL export.
     merged_questions: dict[str, QuestionProposal] = {}
@@ -1897,7 +1902,7 @@ def inspect_smart_package(raw_files: Sequence[tuple[str, object]]) -> SmartPacka
              if item.filename == candidate[1] and item.role == candidate[5]),
             None,
         )
-        if candidate_input is not None and candidate_input.role == "Résultats":
+        if candidate_input is not None and candidate_input.role == "R�sultats":
             question_candidates.append((candidate, candidate_input))
     if not question_candidates:
         question_candidates = [
@@ -1984,7 +1989,7 @@ def inspect_smart_package(raw_files: Sequence[tuple[str, object]]) -> SmartPacka
         prepared_questions,
         key=lambda item: (item[0], _normal(item[1].question_id)),
     )
-    result_split_names = tuple(dict.fromkeys(item.split_name for item in inputs if item.role == "Résultats"))
+    result_split_names = tuple(dict.fromkeys(item.split_name for item in inputs if item.role == "R�sultats"))
     summary_candidates = sorted(
         (
             (_summary_score(proposal), order_index, proposal.question_id.casefold())
@@ -2056,7 +2061,7 @@ def inspect_smart_package(raw_files: Sequence[tuple[str, object]]) -> SmartPacka
     return SmartPackageInfo(
         reference_filename=filename,
         source_sheet=source_sheet,
-        product_names=next((item.product_names for item in inputs if item.role == "Résultats"), inputs[0].product_names),
+        product_names=next((item.product_names for item in inputs if item.role == "R�sultats"), inputs[0].product_names),
         counts=_signature(sheet, layout),
         questions=questions,
         inputs=tuple(inputs),
@@ -2085,7 +2090,7 @@ def profile_from_json(source: bytes | BinaryIO) -> dict:
     try:
         return validate_profile(json.loads(raw.decode("utf-8-sig")))
     except (ValueError, UnicodeDecodeError) as exc:
-        raise TemplyfierError(f"Impossible de lire les réglages : {exc}") from exc
+        raise TemplyfierError(f"Impossible de lire les r�glages : {exc}") from exc
 
 
 def apply_profile(proposals: Sequence[QuestionProposal], profile: dict) -> list[dict]:
@@ -2125,13 +2130,13 @@ def proposal_to_row(proposal: QuestionProposal) -> dict:
         "Confidence": proposal.confidence,
         "CMI role": _cmi_role(proposal),
         "CMI note": _cmi_note(proposal),
-        "Available metrics": " · ".join(proposal.metrics),
-        "Availability": " · ".join(proposal.availability) or "Tous les splits",
+        "Available metrics": " � ".join(proposal.metrics),
+        "Availability": " � ".join(proposal.availability) or "Tous les splits",
         "Included splits": "; ".join(proposal.suggested_splits) or "Tous les splits",
         "Stage": " ; ".join(proposal.stages) or "Unassigned",
         "KPI Summary": proposal.summary_keep,
         "Summary label": proposal.summary_label or _summary_label(proposal.display_label),
-        "Sens favorable": "Idéal au centre" if proposal.question_type == "Strength" else "Automatique",
+        "Sens favorable": "Id�al au centre" if proposal.question_type == "Strength" else "Automatique",
         "Custom metrics": "",
     }
     defaults = {"Mean", "Top Box", "Top 2 Boxes", "Bottom 2 Boxes"}
@@ -2265,7 +2270,7 @@ def clean_metric_label(config, source_metric):
 def grouped_metric_label(config, source_metric, count):
     item = _text(config.get('Metric label')) or _text(config.get('Display label'))
     label = clean_metric_label(config, source_metric)
-    return item if count == 1 and label == source_metric else f'{item} · {label}'
+    return item if count == 1 and label == source_metric else f'{item} � {label}'
 
 
 def _copy_sheet(source, target):
@@ -2384,7 +2389,7 @@ def _selected_question_rows(question_rows: Sequence[dict]) -> list[dict]:
     selected = [row for row in question_rows if bool(row.get("Keep")) and row.get("Type") != "Delete"]
     selected.sort(key=lambda row: (int(row.get("Order", 9999)), str(row.get("Question ID", ""))))
     if not selected:
-        raise TemplyfierError("Aucune question n’est sélectionnée.")
+        raise TemplyfierError("Aucune question n'est s�lectionn�e.")
     return selected
 
 
@@ -2485,7 +2490,7 @@ def _raise_for_unwritten_selected_questions(
         if not isinstance(available, (list, tuple)):
             available = [
                 value.strip()
-                for value in re.split("\\s*[·\\ufffd]\\s*", _text(row.get("Available metrics")))
+                for value in re.split("\\s*[�\\ufffd]\\s*", _text(row.get("Available metrics")))
                 if value.strip()
             ]
         unavailable = (
@@ -2686,18 +2691,19 @@ def _build_paired_toplines(
                 source_metric = _text(source_sheet.cell(source_row, layout.metric_col).value)
                 display_label = _text(config.get("Display label"))
                 metric_label = _text(config.get("Metric label"))
-                if metric_label:
+                if metric_label and len(source_rows) == 1:
                     group_identity = (_text(config.get("Group ID")) or display_label, section, display_label)
                     target.cell(output_row, 1).value = display_label if group_identity != previous_variable_label else None
                     target.cell(output_row, 2).value = (
                         grouped_metric_label(config, source_metric, len(source_rows))
                     )
                     previous_variable_label = group_identity
-                elif question_type in {"Attribute", "CATA"}:
-                    target.cell(output_row, 2).value = (display_label if len(source_rows) == 1 else f"{display_label} · {clean_metric_label(config, source_metric)}")
+                elif question_type in {"Attribute", "CATA"} and not metric_label:
+                    target.cell(output_row, 2).value = (display_label if len(source_rows) == 1 else f"{display_label} � {clean_metric_label(config, source_metric)}")
                     previous_variable_label = None
                 else:
-                    target.cell(output_row, 1).value = display_label if metric_index == 0 else None
+                    variable_label = metric_label or display_label
+                    target.cell(output_row, 1).value = variable_label if metric_index == 0 else None
                     target.cell(output_row, 2).value = clean_metric_label(config, source_metric)
                     previous_variable_label = None
                 number_format = mean_format if _metric_key(source_metric) == "mean" else "0%"
@@ -3037,8 +3043,8 @@ def _summary_signal_from_values(
     if not higher_is_better:
         favourable = not favourable
     if favourable:
-        return "▲" if confidence == 95 else "△"
-    return "▼" if confidence == 95 else "▽"
+        return "" if confidence == 95 else "?"
+    return "" if confidence == 95 else "?"
 
 
 def _summary_metric_rank(metric: str) -> int:
@@ -3059,13 +3065,13 @@ def _summary_metric_rank(metric: str) -> int:
 def _pick_summary_signal(signals: Sequence[tuple[str, str]]) -> str:
     if not signals:
         return "="
-    ordered = sorted(signals, key=lambda item: (_summary_metric_rank(item[0]), item[1] in {"△", "▽"}))
-    directions = {"up" if symbol in {"▲", "△"} else "down" for _, symbol in ordered}
+    ordered = sorted(signals, key=lambda item: (_summary_metric_rank(item[0]), item[1] in {"?", "?"}))
+    directions = {"up" if symbol in {"", "?"} else "down" for _, symbol in ordered}
     if len(directions) > 1:
         # Conflicting metrics: use the most decision-relevant retained metric
         # (Mean, then T2B, Top Box, JAR/B2B) instead of overstating consensus.
         return ordered[0][1]
-    solid = next((symbol for _, symbol in ordered if symbol in {"▲", "▼"}), None)
+    solid = next((symbol for _, symbol in ordered if symbol in {"", ""}), None)
     return solid or ordered[0][1]
 
 
@@ -3073,8 +3079,8 @@ def _pick_summary_decision(entries: Sequence[dict], strategy: str) -> dict:
     """Choose one transparent summary decision from all retained metrics."""
     ordered_all = sorted(entries, key=lambda item: _summary_metric_rank(item["metric"]))
     if ordered_all and not any(item.get("direction_defined", True) for item in ordered_all):
-        return {"symbol": "—", "chosen": ordered_all[0], "conflict": False,
-                "reason": "Aucun sens favorable n’est défini pour cette question"}
+        return {"symbol": "-", "chosen": ordered_all[0], "conflict": False,
+                "reason": "Aucun sens favorable n'est d�fini pour cette question"}
     significant = [item for item in ordered_all if item.get("signal")]
     normalized_strategy = _normal(strategy).replace(" ", "_")
     if normalized_strategy in {"primary", "primary_metric", "metric_principale"}:
@@ -3083,23 +3089,23 @@ def _pick_summary_decision(entries: Sequence[dict], strategy: str) -> dict:
             "symbol": chosen.get("signal") if chosen and chosen.get("signal") else "=",
             "chosen": chosen,
             "conflict": False,
-            "reason": "Métrique principale uniquement",
+            "reason": "M�trique principale uniquement",
         }
     if not significant:
         return {"symbol": "=", "chosen": ordered_all[0] if ordered_all else None, "conflict": False,
-                "reason": "Aucune différence significative sur les métriques retenues"}
-    directions = {"win" if item["signal"] in {"▲", "△"} else "loss" for item in significant}
+                "reason": "Aucune diff�rence significative sur les m�triques retenues"}
+    directions = {"win" if item["signal"] in {"", "?"} else "loss" for item in significant}
     if normalized_strategy in {"consensus", "accord"} and len(directions) > 1:
-        return {"symbol": "±", "chosen": None, "conflict": True,
-                "reason": "Les métriques significatives donnent des directions opposées"}
+        return {"symbol": "�", "chosen": None, "conflict": True,
+                "reason": "Les m�triques significatives donnent des directions oppos�es"}
     if len(directions) > 1:
         chosen = significant[0]
         return {"symbol": chosen["signal"], "chosen": chosen, "conflict": True,
-                "reason": f"Résultats partagés — priorité donnée à {chosen['metric']}"}
-    solid = next((item for item in significant if item["signal"] in {"▲", "▼"}), None)
+                "reason": f"R�sultats partag�s - priorit� donn�e � {chosen['metric']}"}
+    solid = next((item for item in significant if item["signal"] in {"", ""}), None)
     chosen = solid or significant[0]
     return {"symbol": chosen["signal"], "chosen": chosen, "conflict": False,
-            "reason": f"Résultat significatif retenu sur {chosen['metric']}"}
+            "reason": f"R�sultat significatif retenu sur {chosen['metric']}"}
 
 
 def _selected_summary_questions(question_rows: Sequence[dict]) -> list[dict]:
@@ -3138,21 +3144,21 @@ def _write_summary_block(
     header_fill = PatternFill("solid", fgColor="000000")
     neutral_fill = PatternFill("solid", fgColor="EFEFEF")
     fills = {
-        "▲": PatternFill("solid", fgColor="97E39C"),
-        "△": PatternFill("solid", fgColor="C7F0CC"),
-        "▼": PatternFill("solid", fgColor="F5B7AD"),
-        "▽": PatternFill("solid", fgColor="FADBD4"),
-        "±": PatternFill("solid", fgColor="FFF2CC"),
-        "—": neutral_fill,
+        "": PatternFill("solid", fgColor="97E39C"),
+        "?": PatternFill("solid", fgColor="C7F0CC"),
+        "": PatternFill("solid", fgColor="F5B7AD"),
+        "?": PatternFill("solid", fgColor="FADBD4"),
+        "�": PatternFill("solid", fgColor="FFF2CC"),
+        "-": neutral_fill,
         "=": neutral_fill,
     }
     fonts = {
-        "▲": Font(color="008A16", bold=True, size=14),
-        "△": Font(color="008A16", bold=True, size=14),
-        "▼": Font(color="C00000", bold=True, size=14),
-        "▽": Font(color="C00000", bold=True, size=14),
-        "±": Font(color="9C6500", bold=True, size=14),
-        "—": Font(color="7A7A7A", bold=True, size=12),
+        "": Font(color="008A16", bold=True, size=14),
+        "?": Font(color="008A16", bold=True, size=14),
+        "": Font(color="C00000", bold=True, size=14),
+        "?": Font(color="C00000", bold=True, size=14),
+        "�": Font(color="9C6500", bold=True, size=14),
+        "-": Font(color="7A7A7A", bold=True, size=12),
         "=": Font(color="7A7A7A", bold=True, size=12),
     }
     thin = Side(style="thin", color="C9C9C9")
@@ -3262,7 +3268,7 @@ def _write_summary_block(
             cell.alignment = Alignment(horizontal="center", vertical="center")
             cell.border = Border(left=thin, right=thin, top=thin, bottom=thin)
             chosen = decision.get("chosen")
-            product_name = _summary_product_name(record, position).replace("\n", " · ")
+            product_name = _summary_product_name(record, position).replace("\n", " � ")
             candidate_value = chosen.get("candidate") if chosen else None
             benchmark_value = chosen.get("benchmark") if chosen else None
             gap = (
@@ -3270,7 +3276,7 @@ def _write_summary_block(
                 if isinstance(candidate_value, (int, float)) and isinstance(benchmark_value, (int, float))
                 else None
             )
-            significant_comparisons = " · ".join(
+            significant_comparisons = " � ".join(
                 f"{entry['metric']}: {entry['candidate']} vs {entry['benchmark']} ({entry['signal']})"
                 for entry in entries if entry.get("signal")
             ) or "None"
@@ -3279,22 +3285,22 @@ def _write_summary_block(
                 "Benchmark": benchmark_label,
                 "Produit": product_name,
                 "KPI": _text(config.get("Summary label")) or _summary_label(_text(config.get("Display label"))),
-                "Règle favorable": _text(config.get("Sens favorable")) or "Automatique",
-                "Méthode": summary_metric_strategy,
-                "Métrique retenue": chosen.get("metric") if chosen else "Multiple metrics",
+                "R�gle favorable": _text(config.get("Sens favorable")) or "Automatique",
+                "M�thode": summary_metric_strategy,
+                "M�trique retenue": chosen.get("metric") if chosen else "Multiple metrics",
                 "Comparaisons significatives": significant_comparisons,
                 "Valeur produit": candidate_value,
                 "Valeur benchmark": benchmark_value,
-                "Écart": gap,
+                "�cart": gap,
                 "Seuil": f"{chosen.get('confidence')}%" if chosen and chosen.get("confidence") else "Non significatif",
-                "Résultat": symbol,
+                "R�sultat": symbol,
                 "Explication": decision["reason"],
             })
 
     legend_row = header_row + len(product_positions) + 2
     sheet.merge_cells(start_row=legend_row, start_column=1, end_row=legend_row, end_column=max_col)
     legend = sheet.cell(legend_row, 1)
-    legend.value = "▲ win 95%   △ win 90%   = parity   ± résultats partagés   — non interprété   ▽ loss 90%   ▼ loss 95%"
+    legend.value = " win 95%   ? win 90%   = parity   � r�sultats partag�s   - non interpr�t�   ? loss 90%    loss 95%"
     legend.font = Font(color="666666", italic=True, size=9)
     legend.alignment = Alignment(horizontal="left")
     return legend_row + 3
@@ -3317,12 +3323,12 @@ def _create_summary_details(output, used_names: set[str], detail_rows: Sequence[
                 vertical="top",
                 wrap_text=header in {"Produit", "KPI", "Comparaisons significatives", "Explication"},
             )
-            if header in {"Valeur produit", "Valeur benchmark", "Écart"}:
+            if header in {"Valeur produit", "Valeur benchmark", "�cart"}:
                 cell.number_format = "0.00"
     widths = {
-        "Split": 20, "Benchmark": 22, "Produit": 36, "KPI": 28, "Règle favorable": 18,
-        "Méthode": 18, "Métrique retenue": 22, "Valeur produit": 14, "Valeur benchmark": 16,
-        "Comparaisons significatives": 48, "Écart": 12, "Seuil": 15, "Résultat": 10, "Explication": 46,
+        "Split": 20, "Benchmark": 22, "Produit": 36, "KPI": 28, "R�gle favorable": 18,
+        "M�thode": 18, "M�trique retenue": 22, "Valeur produit": 14, "Valeur benchmark": 16,
+        "Comparaisons significatives": 48, "�cart": 12, "Seuil": 15, "R�sultat": 10, "Explication": 46,
     }
     for col, header in enumerate(headers, 1):
         sheet.column_dimensions[get_column_letter(col)].width = widths.get(header, 18)
@@ -3349,7 +3355,7 @@ def _create_monadic_summaries(
     if not kpis:
         return [], None
     if normalized_scope not in {"total", "all"}:
-        raise TemplyfierError("Périmètre KPI Summary inconnu.")
+        raise TemplyfierError("P�rim�tre KPI Summary inconnu.")
     selected_records = list(records)
     if normalized_scope == "total":
         reference_key = _normal(reference_split_name)
@@ -3419,7 +3425,7 @@ def _create_paired_summary(
     if normalized_scope in {"", "none", "no", "off"}:
         return [], None
     if normalized_scope not in {"total", "all"}:
-        raise TemplyfierError("Périmètre KPI Summary inconnu.")
+        raise TemplyfierError("P�rim�tre KPI Summary inconnu.")
     kpis = _selected_summary_questions(question_rows)
     if not kpis:
         return [], None
@@ -3532,7 +3538,7 @@ def build_smart_toplines(
             output_split_names = [_detected_split_label(sheet) for _, _, sheet in virtual_inputs]
         else:
             output_split_names = [
-                f"{_stage_name(sheet)} · {_detected_split_label(sheet)}"
+                f"{_stage_name(sheet)} � {_detected_split_label(sheet)}"
                 for _, _, sheet in virtual_inputs
             ]
     else:
@@ -3552,10 +3558,10 @@ def build_smart_toplines(
     canonical_keys = product_keys[0]
     same_product_sets = all(Counter(keys) == Counter(canonical_keys) for keys in product_keys)
     if not same_product_sets:
-        raise TemplyfierError("Le plan produits n’est pas identique dans tous les exports.")
+        raise TemplyfierError("Le plan produits n'est pas identique dans tous les exports.")
     if not automatic_exports and any(keys != canonical_keys for keys in product_keys[1:]):
         raise TemplyfierError(
-            "L’ordre des produits diffère entre les exports. Active la détection automatique par fichier benchmark."
+            "L'ordre des produits diff�re entre les exports. Active la d�tection automatique par fichier benchmark."
         )
 
     product_count = len(canonical_keys)
@@ -3638,7 +3644,7 @@ def build_smart_toplines(
             matches = [index for index in indexes if benchmark_key in comparison_codes_by_sheet[index]]
             if len(matches) > 1:
                 raise TemplyfierError(
-                    f"Plusieurs exports correspondent à {split_display_names[split_key]} vs {benchmark_key}. "
+                    f"Plusieurs exports correspondent � {split_display_names[split_key]} vs {benchmark_key}. "
                     "Garde un seul fichier pour cette combinaison."
                 )
             if not matches:
@@ -3659,7 +3665,7 @@ def build_smart_toplines(
                     output_jobs.append((file_index, label_offset, active_benchmarks, output_split_names[file_index]))
 
     if not output_jobs:
-        raise TemplyfierError("Aucune combinaison split × benchmark complète n’a été détectée.")
+        raise TemplyfierError("Aucune combinaison split � benchmark compl�te n'a �t� d�tect�e.")
 
     for file_index, label_offset, active_benchmarks, split_display_name in output_jobs:
             filename = source_filenames[file_index]
@@ -3778,17 +3784,18 @@ def build_smart_toplines(
                     source_metric = _text(source_sheet.cell(source_row, layout.metric_col).value)
                     display_label = _text(config.get("Display label"))
                     metric_label = _text(config.get("Metric label"))
-                    if metric_label:
+                    if metric_label and len(source_rows) == 1:
                         group_identity = (_text(config.get("Group ID")) or display_label, section, display_label)
                         target.cell(output_row, 1).value = display_label if group_identity != previous_variable_label else None
                         target.cell(output_row, 2).value = grouped_metric_label(config, source_metric, len(source_rows))
                         previous_variable_label = group_identity
-                    elif question_type in {"Attribute", "CATA"}:
+                    elif question_type in {"Attribute", "CATA"} and not metric_label:
                         target.cell(output_row, 1).value = None
-                        target.cell(output_row, 2).value = (display_label if len(source_rows) == 1 else f"{display_label} · {clean_metric_label(config, source_metric)}")
+                        target.cell(output_row, 2).value = (display_label if len(source_rows) == 1 else f"{display_label} � {clean_metric_label(config, source_metric)}")
                         previous_variable_label = None
                     else:
-                        target.cell(output_row, 1).value = display_label if metric_index == 0 else None
+                        variable_label = metric_label or display_label
+                        target.cell(output_row, 1).value = variable_label if metric_index == 0 else None
                         target.cell(output_row, 2).value = clean_metric_label(config, source_metric)
                         previous_variable_label = None
 
@@ -3939,3 +3946,4 @@ def build_smart_toplines(
         "gap_negative_points": gap_negative_points,
         "include_sections": bool(include_sections),
     }
+
