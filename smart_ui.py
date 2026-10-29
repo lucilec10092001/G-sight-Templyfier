@@ -29,7 +29,7 @@ from templyfier.smart import (
 # Increment whenever parsing/classification semantics change. Streamlit keeps
 # session_state across a hot app redeploy; without this salt, users re-uploading
 # the same files can unknowingly keep an obsolete analysis from the prior release.
-ANALYSIS_SCHEMA_VERSION = "v94"
+ANALYSIS_SCHEMA_VERSION = "v95"
 
 
 LOGGER = logging.getLogger("templyfier.smart_ui")
@@ -67,7 +67,7 @@ def _question_output_signature(frame):
 
 def _support_code(phase: str, file_key: str, exc: Exception) -> str:
     """Create a deterministic, data-free reference for support conversations."""
-    payload = f"v94|{phase}|{file_key}|{type(exc).__name__}|{exc}"
+    payload = f"v95|{phase}|{file_key}|{type(exc).__name__}|{exc}"
     return "TMP-" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:10].upper()
 
 
@@ -289,7 +289,13 @@ def render_smart_mode():
             st.caption("Example: 5 means +5 pts or more in green, and -5 pts or less in red.")
     applied_positive_points = gap_positive_points if gap_highlighting else None
     applied_negative_points = gap_negative_points if gap_highlighting else None
-    include_sections = bool(settings.get("include_sections", True))
+    include_sections = st.checkbox(
+        "Show section headers in Excel",
+        value=bool(settings.get("include_sections", True)),
+        key=f"smart_include_sections_{key}",
+        help=("Sections are the coloured headers that organise question blocks. "
+              "Their names remain editable in the question table; item families are configured separately."),
+    )
     output_sheet_order = settings.get("output_sheet_order", "benchmark_first")
     highlight_benchmarks = bool(settings.get("highlight_benchmarks", True))
 
