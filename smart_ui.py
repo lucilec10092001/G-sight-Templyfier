@@ -29,7 +29,7 @@ from templyfier.smart import (
 # Increment whenever parsing/classification semantics change. Streamlit keeps
 # session_state across a hot app redeploy; without this salt, users re-uploading
 # the same files can unknowingly keep an obsolete analysis from the prior release.
-ANALYSIS_SCHEMA_VERSION = "v91"
+ANALYSIS_SCHEMA_VERSION = "v92"
 
 
 LOGGER = logging.getLogger("templyfier.smart_ui")
@@ -60,7 +60,7 @@ def _question_content_signature(frame):
 
 def _support_code(phase: str, file_key: str, exc: Exception) -> str:
     """Create a deterministic, data-free reference for support conversations."""
-    payload = f"v91|{phase}|{file_key}|{type(exc).__name__}|{exc}"
+    payload = f"v92|{phase}|{file_key}|{type(exc).__name__}|{exc}"
     return "TMP-" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:10].upper()
 
 
@@ -713,7 +713,15 @@ def render_smart_mode():
         if test_type=='Monadic' and benchmark_sheet_mode in {'auto_exports','auto_columns'}:
             split_count=len({_normal(name) for name in split_table["Nom de l'onglet"].astype(str) if str(name).strip()})
             expected=split_count*len(benchmark_positions)
-            matched=sum(row['Contr�le']=='Pr�t' for row in audit['rows'])
+            matched = sum(
+                _normal(
+                    row.get("Contr�le")
+                    or row.get("Check")
+                    or row.get("Status")
+                    or ""
+                ) in {"pret", "ready"}
+                for row in audit["rows"]
+            )
             st.success(f'Input plan ready - {split_count} split(s) x {len(benchmark_positions)} benchmark(s): {matched}/{expected} exports matched.')
         else:
             st.success(f'Input plan ready - {len(audit["rows"])} result file(s) checked.')
