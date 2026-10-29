@@ -2394,12 +2394,55 @@ def _selected_question_rows(question_rows: Sequence[dict]) -> list[dict]:
 
 
 def _questions_in_section_blocks(question_rows: Sequence[dict]) -> list[dict]:
-    """Keep section order and question order while making each section contiguous."""
+    """Make sections and item families contiguous without mixing both concepts."""
+    question_rows = _coherent_question_structure(question_rows)
     sections: dict[str, list[dict]] = {}
     for row in question_rows:
         section = _text(row.get("Section")) or "TOPLINES"
         sections.setdefault(section, []).append(row)
-    return [row for members in sections.values() for row in members]
+    ordered = []
+    for members in sections.values():
+        emitted_groups = set()
+        for row in members:
+            group_id = _text(row.get("Group ID"))
+            if not group_id:
+                ordered.append(row)
+                continue
+            if group_id in emitted_groups:
+                continue
+            ordered.extend(member for member in members if _text(member.get("Group ID")) == group_id)
+            emitted_groups.add(group_id)
+    return ordered
+
+
+def _coherent_question_structure(question_rows: Sequence[dict]) -> list[dict]:
+    """Return copies where each explicit item family owns exactly one section."""
+    rows = [dict(row) for row in question_rows]
+    families: dict[tuple[str, str], list[tuple[int, dict]]] = {}
+    for index, row in enumerate(rows):
+        if not _text(row.get("Group ID")) or not _text(row.get("Metric label")):
+            continue
+        key = (_normal(row.get("Display label")), _normal(row.get("Stage")))
+        families.setdefault(key, []).append((index, row))
+    for family_key, members in families.items():
+        if len(members) < 2:
+            continue
+        counts: dict[str, int] = {}
+        first_seen: dict[str, int] = {}
+        original_section: dict[str, str] = {}
+        for index, row in members:
+            section = _text(row.get("Section")) or "TOPLINES"
+            normal_section = _normal(section)
+            counts[normal_section] = counts.get(normal_section, 0) + 1
+            first_seen.setdefault(normal_section, index)
+            original_section.setdefault(normal_section, section)
+        chosen_key = min(counts, key=lambda value: (-counts[value], first_seen[value]))
+        chosen_section = original_section[chosen_key]
+        coherent_id = "family:" + re.sub(r"[^a-z0-9]+", "-", "-".join(family_key)).strip("-")
+        for _, row in members:
+            row["Section"] = chosen_section
+            row["Group ID"] = coherent_id
+    return rows
 
 
 def _question_applies_to_split(config: dict, split_name: str) -> bool:
