@@ -2719,16 +2719,18 @@ def _build_paired_toplines(
                     "missing_metrics": missing_metrics,
                 })
                 continue
-            section = _text(config.get("Section")) or "TOPLINES"
-            if include_sections and section != current_section:
+            section = _text(config.get("Section"))
+            section_changed = section != current_section
+            if include_sections and section_changed:
+                current_section = section
+                previous_variable_label = None
+            if include_sections and section and section_changed:
                 target.cell(output_row, 1).value = section
                 target.merge_cells(start_row=output_row, start_column=1, end_row=output_row, end_column=max_col)
                 cell = target.cell(output_row, 1)
                 cell.fill = PatternFill("solid", fgColor="D9D3EA")
                 cell.font = Font(bold=True, color="2F2952")
                 output_row += 1
-                current_section = section
-                previous_variable_label = None
 
             for metric_index, source_row in enumerate(source_rows):
                 source_metric = _text(source_sheet.cell(source_row, layout.metric_col).value)
@@ -3781,8 +3783,12 @@ def build_smart_toplines(
                 expected_in_source = _question_expected_in_source(
                     config, split_display_name, source_sheet
                 )
-                section = _text(config.get("Section")) or "TOPLINES"
-                if include_sections and section != current_section:
+                section = _text(config.get("Section"))
+                section_changed = section != current_section
+                if include_sections and section_changed:
+                    current_section = section
+                    previous_variable_label = None
+                if include_sections and section and section_changed:
                     target.cell(output_row, 1).value = section
                     target.merge_cells(start_row=output_row, start_column=1, end_row=output_row, end_column=max_col)
                     section_cell = target.cell(output_row, 1)
@@ -3791,8 +3797,6 @@ def build_smart_toplines(
                     section_cell.alignment = Alignment(vertical="center")
                     target.row_dimensions[output_row].height = 22
                     output_row += 1
-                    current_section = section
-                    previous_variable_label = None
 
                 question_id = _text(config.get("Question ID"))
                 question_type = _text(config.get("Type"))
