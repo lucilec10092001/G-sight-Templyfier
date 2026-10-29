@@ -15,7 +15,7 @@ from templyfier.editor_model import (
     QUESTION_TYPES, change_type, export_rows, prepare_rows,
     reorder_rows, set_metric_selection,
 )
-from templyfier.smart import _metric_key, proposal_to_row
+from templyfier.smart import _coherent_question_structure, _metric_key, proposal_to_row
 
 
 def _clean(value):
@@ -284,7 +284,7 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
     column_sets = {
         "Essentials (recommended)": [
             "Keep", "Edit together", "Question type", "Metrics shown in Excel", "G-Sight question",
-            "Variable / item", "Group", "Stage", "Status",
+            "Variable / item", "Group", "Section", "Stage", "Status",
         ],
         "Study mapping": [
             "Keep", "Edit together", "G-Sight question", "Section", "Stage", "Included splits", "Status",
@@ -438,7 +438,8 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
                 row["Display label"] = variable
                 row["Metric label"] = ""
         _apply_group_wide_table_edits(changed, rows, visible, edit_records)
-        return changed, by_id
+        changed = _coherent_question_structure(changed)
+        return changed, {row["Question ID"]: row for row in changed}
 
     if selected_ids and not shared_changes:
         st.info(
