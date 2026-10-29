@@ -249,6 +249,39 @@ class EditorTests(unittest.TestCase):
         config={'Display label':'Colour','Metric label':'A1','Metric labels':{'2-Yes':'Chosen'}}
         self.assertEqual(grouped_metric_label(config,'2-Yes',1),'A1 � Chosen')
 
+    def test_broad_group_does_not_move_multimetric_variable_into_metric_column(self):
+        row = deepcopy(self.rows[0])
+        row['Display label'] = 'Product'
+        row['Metric label'] = 'Gives feeling freshness'
+        row['Group ID'] = 'product'
+        data, _ = build_smart_toplines(
+            [('test.xlsx', self.raw)], export_rows([row]),
+            split_names=['TOTAL'], benchmark_positions=[0], standard_metrics=AGG,
+            include_screeners=False, include_sections=False,
+        )
+        sheet = load_workbook(BytesIO(data), data_only=False).active
+        self.assertEqual(sheet.cell(6, 1).value, 'Gives feeling freshness')
+        self.assertEqual(sheet.cell(6, 2).value, 'Mean')
+        self.assertNotIn(
+            'Gives feeling freshness',
+            [sheet.cell(r, 2).value for r in range(6, sheet.max_row + 1)],
+        )
+
+    def test_only_explicit_attribute_batteries_are_grouped_automatically(self):
+        from templyfier.smart import _attribute_display_labels
+        self.assertEqual(
+            _attribute_display_labels('Q-31-Stain_Removers', 'Stain Removers', 'Attribute', 'PRODUCT BENEFITS'),
+            ('Stain Removers', ''),
+        )
+        self.assertEqual(
+            _attribute_display_labels('Q-42-Relaxed', 'Relaxed', 'Attribute', 'FRAGRANCE CHARACTERISTICS'),
+            ('Relaxed', ''),
+        )
+        self.assertEqual(
+            _attribute_display_labels('Q-18-Olfactive attributes - Natural', 'Natural', 'Attribute', 'FRAGRANCE CHARACTERISTICS'),
+            ('Olfactive Attributes', 'Natural'),
+        )
+
     def test_partial_profile_new_rows_do_not_create_nan_groups(self):
         import pandas as pd
         partial=deepcopy(self.rows[0]);partial['Group ID']='saved'
