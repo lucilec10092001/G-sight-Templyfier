@@ -282,6 +282,25 @@ class EditorTests(unittest.TestCase):
             ('Olfactive Attributes', 'Natural'),
         )
 
+    def test_item_family_owns_one_section_and_stays_contiguous(self):
+        from templyfier.smart import _questions_in_section_blocks
+        rows = [
+            {'Question ID': 'Q1', 'Section': 'FIRST', 'Display label': 'Fragrance attribute',
+             'Metric label': 'Fresh', 'Group ID': 'first-id', 'Stage': 'WET'},
+            {'Question ID': 'Q2', 'Section': 'OTHER', 'Display label': 'Independent',
+             'Metric label': '', 'Group ID': '', 'Stage': 'WET'},
+            {'Question ID': 'Q3', 'Section': 'ATTRIBUTES', 'Display label': 'Fragrance attribute',
+             'Metric label': 'Natural', 'Group ID': 'second-id', 'Stage': 'WET'},
+            {'Question ID': 'Q4', 'Section': 'ATTRIBUTES', 'Display label': 'Fragrance attribute',
+             'Metric label': 'Clean', 'Group ID': 'second-id', 'Stage': 'WET'},
+        ]
+        ordered = _questions_in_section_blocks(rows)
+        family = [row for row in ordered if row['Display label'] == 'Fragrance attribute']
+        self.assertEqual({row['Section'] for row in family}, {'ATTRIBUTES'})
+        positions = [ordered.index(row) for row in family]
+        self.assertEqual(positions, list(range(min(positions), max(positions) + 1)))
+        self.assertEqual(len({row['Group ID'] for row in family}), 1)
+
     def test_partial_profile_new_rows_do_not_create_nan_groups(self):
         import pandas as pd
         partial=deepcopy(self.rows[0]);partial['Group ID']='saved'
