@@ -68,6 +68,52 @@ def _apply_table_metric_edit(row, edited_type, edited_metrics, type_sources):
     set_metric_selection(row, chosen)
 
 
+def _apply_group_wide_table_edits(changed, original_rows, original_records, edited_records):
+    """Keep a displayed group coherent when its name or section is edited once."""
+    originals = {record["G-Sight question"]: record for record in original_records}
+    source_rows = {row["Question ID"]: row for row in original_rows}
+    updates = {}
+    for edited in edited_records:
+        question_id = edited.get("G-Sight question")
+        original = originals.get(question_id)
+        source = source_rows.get(question_id)
+        old_group_id = source.get("Group ID") if source else ""
+        if not original or not old_group_id:
+            continue
+        group_changed = not _same_cell_value(edited.get("Group"), original.get("Group"))
+        section_changed = not _same_cell_value(edited.get("Section"), original.get("Section"))
+        if not group_changed and not section_changed:
+            continue
+        proposed = (
+            _clean(edited.get("Group", original.get("Group", ""))),
+            _clean(edited.get("Section", original.get("Section", ""))),
+            group_changed,
+            section_changed,
+        )
+        if old_group_id in updates and updates[old_group_id] != proposed:
+            raise ValueError("A group received two different names or sections. Keep one value.")
+        updates[old_group_id] = proposed
+
+    for old_group_id, (group, section, group_changed, section_changed) in updates.items():
+        member_ids = {
+            row["Question ID"] for row in original_rows if row.get("Group ID") == old_group_id
+        }
+        members = [row for row in changed if row["Question ID"] in member_ids]
+        for row in members:
+            if section_changed:
+                row["Section"] = section
+            if group_changed and not group:
+                row["Display label"] = row.get("Metric label") or row["Display label"]
+                row["Metric label"] = ""
+                row["Group ID"] = ""
+                continue
+            if group_changed:
+                row["Display label"] = group
+            if row.get("Group ID"):
+                row["Group ID"] = _group_id(row.get("Section", ""), row["Display label"])
+    return changed
+
+
 def _apply_selected_metrics(rows, selected_ids, chosen, labels=None):
     if not selected_ids:
         raise ValueError("Select at least one question.")
@@ -136,8 +182,10 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
         if remember_edit(model, changed, action):
             if request_rerun:
                 st.session_state[f"editor_refresh_{key}"] = True
+            return True
         else:
             st.info("No change to apply.")
+            return False
 
     audit = audit_questions(rows)
     type_attention_ids = {
@@ -385,6 +433,7 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
                 row["Group ID"] = ""
                 row["Display label"] = variable
                 row["Metric label"] = ""
+        _apply_group_wide_table_edits(changed, rows, visible, edit_records)
         return changed, by_id
 
     if selected_ids and not shared_changes:
@@ -406,23 +455,15 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
         except ValueError as exc:
             st.error(str(exc))
 
-    if table_dirty:
-        st.warning(
-            "Changes are not applied yet. Click **Save question changes** below.",
-            icon=":material/edit_note:",
-        )
-
-    save_table_clicked = st.button(
-        "Save question changes", type="primary", icon=":material/save:",
-        key=f"save_question_table_{key}_{revision}_{view_key}",
-    )
-
-    if save_table_clicked:
+    if table_dirty and not shared_changes:
         try:
-            changed, by_id = apply_visible_table_edits()
-            commit(changed, "Question table updated.")
+            changed, _ = apply_visible_table_edits()
+            if commit(changed, "Question table updated."):
+                st.rerun()
         except ValueError as exc:
             st.error(str(exc))
+
+    st.caption("Question-table edits are saved automatically.")
 
     with st.expander("Change question order - optional", expanded=False):
         st.caption("Select one or several questions, including non-adjacent rows, and drag a handle. "
@@ -432,7 +473,8 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
         if event and event.get("revision") == revision:
             try:
                 if event["ids"] != [row["Question ID"] for row in rows]:
-                    commit(reorder_rows(rows, event["ids"]), "Question order updated.", request_rerun=False)
+                    if commit(reorder_rows(rows, event["ids"]), "Question order updated."):
+                        st.rerun()
             except (ValueError, KeyError, TypeError) as exc:
                 st.error(f"Move not applied: {exc}")
 
@@ -468,3 +510,4 @@ def render_optional_question_tools(key, memory=None, protected_ids=(), project_k
         if event and event.get("revision") == revision and event["ids"] != [row["Question ID"] for row in rows]:
             commit(reorder_rows(rows, event["ids"]), "Question order updated.")
     return pd.DataFrame(export_rows(model["rows"]))
+
