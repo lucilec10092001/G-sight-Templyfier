@@ -299,6 +299,10 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
             "Stage", "Included splits", "KPI Summary", "KPI short label", "Status",
         ],
     }
+    st.caption(
+        "**Section header** creates a coloured Excel divider. **Item family** groups shared items "
+        "such as Colour under one variable. Select several rows with Edit together to assign either value."
+    )
     edited = st.data_editor(
         pd.DataFrame(visible), hide_index=True, width="stretch", height=560,
         key=f"questions_table_{key}_{revision}_{view_key}",
@@ -318,12 +322,13 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
             ),
             "Group": st.column_config.TextColumn(
                 "Item family (optional)", width="medium",
-                help=("Use only for true one-result item batteries such as Color or Olfactive Attributes. "
-                      "Leave blank for ordinary questions; it does not replace the Section."),
+                help=("Example: enter Colour for Red, Blue and Green items. They will be kept together "
+                      "under one variable. Leave blank for ordinary questions."),
             ),
             "Section": st.column_config.TextColumn(
-                "Section header shown in Excel", width="medium",
-                help="This is the purple section header in Excel. Select related rows to rename it consistently.",
+                "Section header (optional)", width="medium",
+                help=("The CMI controls this coloured Excel header. Select the questions that belong together "
+                      "and enter the header once. Leave blank for no section header."),
             ),
             "Stage": st.column_config.TextColumn(
                 width="small", help="Type any study-specific stage. Use a semicolon for several stages."
