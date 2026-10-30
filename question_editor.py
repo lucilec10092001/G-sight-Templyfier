@@ -15,7 +15,9 @@ from templyfier.editor_model import (
     QUESTION_TYPES, change_type, export_rows, prepare_rows,
     reorder_rows, set_metric_selection,
 )
-from templyfier.smart import _coherent_question_structure, _metric_key, proposal_to_row
+from templyfier.smart import (
+    _coherent_question_structure, _metric_key, proposal_to_row, question_structure_summary,
+)
 
 
 def _clean(value):
@@ -167,8 +169,11 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
             initial_rows = sorted(initial_rows, key=stage_rank)
             for index, row in enumerate(initial_rows, 1):
                 row["Order"] = index
+        initial_structure = question_structure_summary(initial_rows)
+        initial_rows = _coherent_question_structure(initial_rows)
         st.session_state[model_key] = {
-            "rows": initial_rows, "revision": 0, "history": [], "stage_order": list(stage_order)
+            "rows": initial_rows, "revision": 0, "history": [], "stage_order": list(stage_order),
+            "reconciled_families": initial_structure["split_families"],
         }
 
     model = st.session_state[model_key]
@@ -209,6 +214,14 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
                   icon=":material/redo:", on_click=redo_edit, args=(model,))
     if model.get("notice"):
         st.toast(model["notice"], icon=":material/check_circle:")
+    if model.get("reconciled_families"):
+        family_count = model["reconciled_families"]
+        family_word = "family" if family_count == 1 else "families"
+        st.info(
+            f"Templyfier kept {family_count} item {family_word} together in one section. "
+            "You can change that section in the table.",
+            icon=":material/info:",
+        )
 
     render_type_metric_editor(model["rows"], key, model["revision"], commit)
 
@@ -443,7 +456,10 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
                 row["Display label"] = variable
                 row["Metric label"] = ""
         _apply_group_wide_table_edits(changed, rows, visible, edit_records)
+        structure_before = question_structure_summary(changed)
         changed = _coherent_question_structure(changed)
+        if structure_before["split_families"]:
+            model["reconciled_families"] = structure_before["split_families"]
         return changed, {row["Question ID"]: row for row in changed}
 
     if selected_ids and not shared_changes:
