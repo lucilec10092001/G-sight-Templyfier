@@ -201,11 +201,8 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
     summary[0].metric("Questions detected", len(rows))
     summary[1].metric("Question types", len({row["Type"] for row in rows if row.get("Keep")}))
     summary[2].metric("To be checked", len(type_attention_ids))
-    st.caption(
-        "Rows marked **Please check** need a quick CMI decision. All other suggestions are ready to use."
-        if type_attention_ids else
-        "All question types have a confident proposal. Keep the defaults or adjust any row."
-    )
+    if type_attention_ids:
+        st.caption("Only rows marked **Please check** need a CMI decision.")
 
     with st.container(horizontal=True):
         st.button("Undo", key=f"undo_questions_{key}", disabled=not model.get("history"),
@@ -227,9 +224,8 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
 
     st.markdown("### Review questions")
     st.caption(
-        "Everything that affects the Excel output is in this table. Filtering only changes the view; "
-        "hidden rows stay in the output. Edit a cell to change one question. To make the same change "
-        "on several questions, tick **Edit together** on those rows and edit any one of their cells."
+        "Edit any cell directly. For the same change on several questions, tick **Edit together**, "
+        "then edit one selected row."
     )
     filter_cols = st.columns([2.2, 1.1, 1.1, 1.1, 1.35])
     search = filter_cols[0].text_input(
