@@ -2464,6 +2464,30 @@ def _coherent_question_structure(question_rows: Sequence[dict]) -> list[dict]:
     return rows
 
 
+def question_structure_summary(question_rows: Sequence[dict]) -> dict:
+    """Summarise CMI-controlled sections and item families before export."""
+    kept = [
+        row for row in question_rows
+        if bool(row.get("Keep", True)) and _text(row.get("Type")) != "Delete"
+    ]
+    sections = {
+        _normal(row.get("Section")) for row in kept if _text(row.get("Section"))
+    }
+    families: dict[tuple[str, str], set[str]] = {}
+    for row in kept:
+        if not _text(row.get("Group ID")) or not _text(row.get("Metric label")):
+            continue
+        key = (_normal(row.get("Display label")), _normal(row.get("Stage")))
+        families.setdefault(key, set()).add(_normal(row.get("Section")) or "(no section)")
+    split_families = [key for key, family_sections in families.items() if len(family_sections) > 1]
+    return {
+        "section_headers": len(sections),
+        "item_families": len(families),
+        "split_families": len(split_families),
+        "split_family_names": [key[0] for key in split_families],
+    }
+
+
 def _question_applies_to_split(config: dict, split_name: str) -> bool:
     raw = _text(config.get("Included splits"))
     if not raw or _normal(raw) in {"all", "all splits", "tous", "tous les splits", "*"}:
