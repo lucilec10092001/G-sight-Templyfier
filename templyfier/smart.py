@@ -1660,6 +1660,21 @@ def _classify(question_id: str, mapped_kpi: str, metrics: Sequence[str]) -> tupl
         return "Strength", "�lev�e"
     if strength_word and has_box:
         return "Strength", "Moyenne"
+    interrogative_choice = bool(
+        response_codes
+        and re.search(r"\b(?:which|what|where|how|when|who|quel\w*|quoi|ou|comment|combien)\b", combined)
+    )
+    ordinal_scale = any(
+        re.search(
+            r"\b(?:poor|good|bad|excellent|hate|dislike|like|love|satisf|agree|likely|"
+            r"appeal|pleasant|unpleasant|weak|strong|faible|fort|mauvais|bon|excellent|"
+            r"aime|accord|probable|agreable|desagreable)\b",
+            metric,
+        )
+        for metric in normalized_metrics
+    ) or bool(re.search(r"\b(?:liking|satisf|agree|likely|appeal|intens|strength)\b", combined))
+    if interrogative_choice and not ordinal_scale:
+        return "Listing", "�lev�e"
     if response_codes and any(word in combined for word in ("listing", "list of", "select all", "which of")):
         return "Listing", "Moyenne"
     # A classical scale can be exported with a Mean but without precomputed
@@ -1746,7 +1761,11 @@ def _analyze_question_sheet(sheet) -> tuple:
             stage for stage in ("NEAT", "WET", "DRY", "DAMP")
             if re.search(rf"\b{_normal(stage)}\b", combined)
         )
-        fallback_stage = () if _normal(source_stage) in {"", "none", "not specified", "non precise"} else (source_stage,)
+        # The validated source sheet is stronger evidence than a word inside a
+        # question ID. For example HOW_DRY is a usage question stored in the
+        # OVERALL / IN USE sheet, not a fragrance evaluation at DRY stage.
+        source_has_stage = _normal(source_stage) not in {"", "none", "not specified", "non precise"}
+        fallback_stage = (source_stage,) if source_has_stage else ()
         proposals.append(
             QuestionProposal(
                 keep=question_type != "Delete" and section != "USAGE & CONTEXT",
@@ -1760,7 +1779,7 @@ def _analyze_question_sheet(sheet) -> tuple:
                 first_row=group["first_row"],
                 metrics=tuple(group["metrics"]),
                 metric_label=metric_label,
-                stages=explicit_stages or fallback_stage,
+                stages=fallback_stage or explicit_stages,
             )
         )
     return sheet.title, layout, tuple(proposals)
@@ -2494,6 +2513,13 @@ def _raise_for_question_omissions(omissions: Sequence[dict]) -> None:
         + (f" [missing metrics: {', '.join(item['missing_metrics'])}]" if item.get("missing_metrics") else "")
         for item in unique[:8]
     )
+    remaining = len(unique) - 8
+    suffix = f"; and {remaining} more" if remaining > 0 else ""
+    raise TemplyfierError(
+        "Safety check stopped the export because selected questions would be missing from "
+        f"an expected worksheet: {examples}{suffix}. Nothing has been downloaded. "
+        "Check the source G-Sight export or adjust Included splits/Stage in the question table."
+    )
 
 
 def _raise_for_empty_topline_sheets(summary_records: Sequence[dict]) -> None:
@@ -2561,15 +2587,6 @@ def _raise_for_unwritten_selected_questions(
         f"topline worksheet: {examples}{suffix}. Nothing has been downloaded. Check their "
         "Included splits, Stage and selected metrics."
     )
-    remaining = len(unique) - 8
-    suffix = f"; and {remaining} more" if remaining > 0 else ""
-    raise TemplyfierError(
-        "Safety check stopped the export because selected questions would be missing from "
-        f"an expected worksheet: {examples}{suffix}. Nothing has been downloaded. "
-        "Check the source G-Sight export or adjust Included splits/Stage in the question table."
-    )
-
-
 def _missing_selected_metrics(config: dict, source_sheet, layout, source_rows: Sequence[int]) -> list[str]:
     """Return explicitly selected metrics that cannot be written from this source."""
     selected = config.get("Selected metrics")
@@ -3588,6 +3605,31 @@ def build_smart_toplines(
             ]
     else:
         raise TemplyfierError("Le nombre de noms de splits est incorrect.")
+
+    # Consolidated workbooks can contain several stage sheets carrying the
+    # same consumer split (often TOTAL). They are distinct readings and must
+    # never collide when benchmark panels are combined.
+    duplicate_split_names = {
+        _normal(name) for name in output_split_names
+        if sum(_normal(other) == _normal(name) for other in output_split_names) > 1
+    }
+    if duplicate_split_names and len(virtual_inputs) > len(raw_files):
+        resolved_names = []
+        used_names = set()
+        for position, (name, (_, _, sheet)) in enumerate(zip(output_split_names, virtual_inputs), 1):
+            candidate = name
+            if _normal(name) in duplicate_split_names:
+                stage = _stage_name(sheet)
+                suffix = stage if _normal(stage) not in {"", "none", "not specified", "non precise"} else sheet.title
+                candidate = f"{name} - {suffix}"
+            base = candidate
+            counter = 2
+            while _normal(candidate) in used_names:
+                candidate = f"{base} ({counter})"
+                counter += 1
+            used_names.add(_normal(candidate))
+            resolved_names.append(candidate)
+        output_split_names = resolved_names
 
     data_sheets = [sheet for _, _, sheet in virtual_inputs]
     source_workbooks = [workbooks[file_index] for file_index, _, _ in virtual_inputs]
