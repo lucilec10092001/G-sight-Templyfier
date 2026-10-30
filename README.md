@@ -1,4 +1,4 @@
-# G-Sight Templyfier v96
+# G-Sight Templyfier v97
 
 Templyfier turns G-Sight DataViz outputs into editable Excel toplines for consumer research studies. The interface is in English and the question detection supports English and French source wording. No consumer files or credentials are included in this repository.
 
@@ -65,5 +65,5 @@ For an internal server deployment, follow `SERVER_DEPLOYMENT.md`. The current pu
 
 ## Validation
 
-Version 96 makes coloured section headers opt-in and fully CMI-controlled. Section headers and item families are separate editable columns, and a blank section creates no header. See `CHANGES_v96.md` and `VALIDATION_v96.md`.
+Version 97 hardens result reliability, stage mapping, consolidated multi-stage outputs and categorical question recommendations. See `CHANGES_v97.md` and `VALIDATION_v97.md`.
 
