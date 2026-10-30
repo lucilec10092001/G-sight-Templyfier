@@ -333,7 +333,7 @@ class EditorTests(unittest.TestCase):
         )
 
     def test_item_family_owns_one_section_and_stays_contiguous(self):
-        from templyfier.smart import _questions_in_section_blocks
+        from templyfier.smart import _questions_in_section_blocks, question_structure_summary
         rows = [
             {'Question ID': 'Q1', 'Section': 'FIRST', 'Display label': 'Fragrance attribute',
              'Metric label': 'Fresh', 'Group ID': 'first-id', 'Stage': 'WET'},
@@ -344,12 +344,19 @@ class EditorTests(unittest.TestCase):
             {'Question ID': 'Q4', 'Section': 'ATTRIBUTES', 'Display label': 'Fragrance attribute',
              'Metric label': 'Clean', 'Group ID': 'second-id', 'Stage': 'WET'},
         ]
+        self.assertEqual(question_structure_summary(rows), {
+            'section_headers': 3,
+            'item_families': 1,
+            'split_families': 1,
+            'split_family_names': ['fragrance attribute'],
+        })
         ordered = _questions_in_section_blocks(rows)
         family = [row for row in ordered if row['Display label'] == 'Fragrance attribute']
         self.assertEqual({row['Section'] for row in family}, {'ATTRIBUTES'})
         positions = [ordered.index(row) for row in family]
         self.assertEqual(positions, list(range(min(positions), max(positions) + 1)))
         self.assertEqual(len({row['Group ID'] for row in family}), 1)
+        self.assertEqual(question_structure_summary(ordered)['split_families'], 0)
 
     def test_partial_profile_new_rows_do_not_create_nan_groups(self):
         import pandas as pd
