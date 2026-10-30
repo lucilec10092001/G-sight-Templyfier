@@ -39,6 +39,25 @@ def _multistage_export() -> bytes:
 
 
 class MultiStageTests(unittest.TestCase):
+    def test_consolidated_hut_stage_sheets_get_unique_output_names(self):
+        workbook = load_workbook(BytesIO(_multistage_export()))
+        for sheet in workbook.worksheets:
+            sheet['C4'], sheet['D4'] = '100 - B1', '100 - C1'
+        buffer = BytesIO(); workbook.save(buffer)
+        files = [('DataViz_HUT_NEAT_WET.xlsx', buffer.getvalue())]
+        info = inspect_smart_package(files)
+        rows = [proposal_to_row(question) for question in info.questions]
+        output, _ = build_smart_toplines(
+            files, rows, split_names=['TOTAL'], benchmark_positions=(0,),
+            standard_metrics=('Mean', 'Top Box', 'Top 2 Boxes', 'Bottom 2 Boxes'),
+            benchmark_sheet_mode='benchmark_columns', include_screeners=False,
+        )
+        names = load_workbook(BytesIO(output), data_only=False).sheetnames
+        self.assertEqual(len(names), 2)
+        self.assertEqual(len(set(names)), 2)
+        self.assertTrue(any('NEAT' in name for name in names))
+        self.assertTrue(any('WET' in name for name in names))
+
     def test_all_stage_questions_are_detected_and_written(self):
         source = _multistage_export()
         files = [("DataViz_CLT_NEAT_WET.xlsx", source)]
@@ -200,3 +219,4 @@ class MultiStageTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
