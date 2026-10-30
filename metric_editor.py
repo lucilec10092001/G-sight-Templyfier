@@ -39,9 +39,7 @@ def render_type_metric_editor(rows, key, revision, commit=None):
             'Autres': 'All individual project-specific response options.',
         }
         st.caption(
-            f'No {type_display} question is currently detected. Its preset is already ready: '
-            f'{defaults[selected_type]} If you change a question to this type in the table, '
-            'Templyfier applies this preset automatically.'
+            f'No {type_display} question detected. Preset ready if needed: {defaults[selected_type]}'
         )
         return
     source = candidates[0]
