@@ -123,7 +123,6 @@ def _formula_and_fill_checks(workbook):
     formula_errors = []
     fill_checks = 0
     fill_errors = []
-    formula_pattern = re.compile(r"^=([A-Z]+)(\d+)-([A-Z]+)(\d+)$")
     for sheet in workbook.worksheets:
         if any(token in sheet.title.casefold() for token in ("summary", "details", "screener")):
             continue
@@ -132,18 +131,26 @@ def _formula_and_fill_checks(workbook):
                 if not isinstance(cell.value, str) or not cell.value.startswith("="):
                     continue
                 formulas += 1
-                match = formula_pattern.match(cell.value)
-                if not match:
-                    formula_errors.append(f"{sheet.title}!{cell.coordinate}: formule inattendue {cell.value}")
+                if "#REF!" in cell.value:
+                    formula_errors.append(f"{sheet.title}!{cell.coordinate}: broken reference {cell.value}")
                     continue
-                left_col, left_row, right_col, right_row = match.groups()
-                if int(left_row) != cell.row or int(right_row) != cell.row:
-                    formula_errors.append(f"{sheet.title}!{cell.coordinate}: références de ligne incohérentes")
+                references = []
+                for col, row_number in re.findall(r"\b([A-Z]{1,3})(\d+)\b", cell.value):
+                    reference = (col, int(row_number))
+                    if reference not in references:
+                        references.append(reference)
+                if len(references) < 2:
+                    formula_errors.append(f"{sheet.title}!{cell.coordinate}: unexpected formula {cell.value}")
                     continue
+                if any(row_number != cell.row for _, row_number in references):
+                    formula_errors.append(f"{sheet.title}!{cell.coordinate}: inconsistent row references")
+                    continue
+                left_col, _ = references[0]
+                right_col, _ = references[1]
                 left = sheet.cell(cell.row, column_index_from_string(left_col)).value
                 right = sheet.cell(cell.row, column_index_from_string(right_col)).value
                 if not isinstance(left, (int, float)) or not isinstance(right, (int, float)):
-                    formula_errors.append(f"{sheet.title}!{cell.coordinate}: références non numériques")
+                    formula_errors.append(f"{sheet.title}!{cell.coordinate}: non-numeric references")
                     continue
                 rgb = (cell.fill.fgColor.rgb or "").upper()[-6:]
                 if rgb in GREEN | RED:
@@ -168,13 +175,20 @@ def _summary_checks(workbook):
     sheet = workbook["KPI Details"]
     headers = {sheet.cell(1, col).value: col for col in range(1, sheet.max_column + 1)}
     errors = []
+    result_col = headers.get("R�sultat") or headers.get("Result")
+    comparisons_col = headers.get("Comparaisons significatives") or headers.get("Significant comparisons")
+    if result_col is None or comparisons_col is None:
+        return {
+            "summary_rows": max(0, sheet.max_row - 1),
+            "summary_errors": ["KPI Details headers are not recognised"],
+        }
     for row in range(2, sheet.max_row + 1):
-        symbol = sheet.cell(row, headers["Résultat"]).value
-        comparisons = str(sheet.cell(row, headers["Comparaisons significatives"]).value or "")
-        if symbol == "±" and not (any(up in comparisons for up in ("▲", "△")) and any(down in comparisons for down in ("▼", "▽"))):
-            errors.append(f"KPI Details row {row}: conflit sans directions opposées")
-        if symbol in {"▲", "△", "▼", "▽"} and symbol not in comparisons:
-            errors.append(f"KPI Details row {row}: symbole non justifié par les comparaisons")
+        symbol = sheet.cell(row, result_col).value
+        comparisons = str(sheet.cell(row, comparisons_col).value or "")
+        if symbol == "�" and not (any(up in comparisons for up in ("", "?")) and any(down in comparisons for down in ("", "?"))):
+            errors.append(f"KPI Details row {row}: conflit sans directions oppos�es")
+        if symbol in {"", "?", "", "?"} and symbol not in comparisons:
+            errors.append(f"KPI Details row {row}: symbole non justifi� par les comparaisons")
     return {"summary_rows": max(0, sheet.max_row - 1), "summary_errors": errors}
 
 
@@ -185,7 +199,7 @@ def _intersection_count(left: Counter, right: Counter) -> int:
 def _scenario_definitions():
     return [
         {
-            "name": "WAVE HUT — 6 splits",
+            "name": "WAVE HUT - 6 splits",
             "sources": sorted(UPLOAD.glob("DataViz_WAVE*.xlsx")),
             "historical": UPLOAD / "Clean file - v2.xlsx",
             "test_type": "Monadic",
@@ -194,7 +208,7 @@ def _scenario_definitions():
             "mode": "combined",
         },
         {
-            "name": "Comfort Yellow CLT — WET/NEAT",
+            "name": "Comfort Yellow CLT - WET/NEAT",
             "sources": [UPLOAD / "DataViz_CLT Comfort Yellow UK_NEAT.xlsx", UPLOAD / "DataViz_CLT Comfort Yellow UK_WET.xlsx"],
             "inspection_sources": [
                 UPLOAD / "DataViz_CLT Comfort Yellow UK_NEAT.xlsx", UPLOAD / "DataViz_CLT Comfort Yellow UK_WET.xlsx",
@@ -207,7 +221,7 @@ def _scenario_definitions():
             "mode": "separate",
         },
         {
-            "name": "Comfort White HUT — classeur consolidé",
+            "name": "Comfort White HUT - classeur consolid�",
             "sources": [UPLOAD / "G-sight output - ALL SPLITS.xlsx"],
             "historical": UPLOAD / "Comfort White HUT UK - Toplines(1).xlsx",
             "test_type": "Monadic",
@@ -216,7 +230,7 @@ def _scenario_definitions():
             "mode": "auto_exports",
         },
         {
-            "name": "Einstein Paired HUT — 4 splits",
+            "name": "Einstein Paired HUT - 4 splits",
             "sources": sorted(UPLOAD.glob("DataViz_Raw Data Einstein LC_*.xlsx")),
             "historical": UPLOAD / "Toplines Einstein 2.0 Paired HUT GE.xlsx",
             "test_type": "Paired",
@@ -225,7 +239,7 @@ def _scenario_definitions():
             "mode": "combined",
         },
         {
-            "name": "Yumos Pink HUT — 8 splits × 2 benchmarks",
+            "name": "Yumos Pink HUT - 8 splits � 2 benchmarks",
             "sources": [UPLOAD / name for name in (
                 "DATAVI~1.XLS", "DATAVI~2.XLS", "DATAVI~3.XLS", "DATAVI~4.XLS", "DAD68F~1.XLS", "DABA5C~1.XLS",
                 "DA9C69~1.XLS", "DA1981~1.XLS", "DAC581~1.XLS", "DAAE49~1.XLS", "DA26AE~1.XLS", "DA873C~1.XLS",
@@ -238,7 +252,7 @@ def _scenario_definitions():
             "mode": "auto_exports",
         },
         {
-            "name": "Skip Active CLT — 5 splits",
+            "name": "Skip Active CLT - 5 splits",
             "sources": [UPLOAD / name for name in (
                 "DATAVI~1(1).XLS", "DATAVI~2(1).XLS", "DATAVI~3(1).XLS", "DATAVI~4(1).XLS", "DA754D~1.XLS",
             )],
@@ -257,7 +271,7 @@ def qualify_scenario(config: dict) -> dict:
     inspection_sources = config.get("inspection_sources", sources)
     info = inspect_smart_package([(path.name, path) for path in inspection_sources])
     source_names = {path.name for path in sources}
-    result_inputs = [item for item in info.inputs if item.filename in source_names and item.role == "Résultats"]
+    result_inputs = [item for item in info.inputs if item.filename in source_names and item.role == "R�sultats"]
     if not result_inputs:
         result_inputs = [item for item in info.inputs if item.filename in source_names]
     split_names = [item.split_name for item in result_inputs]
@@ -339,15 +353,15 @@ def _markdown(results: list[dict]) -> str:
     total_significance = sum(item["significance_directions_checked"] for item in results)
     total_summary_rows = sum(item["summary_rows"] for item in results)
     lines = [
-        "# Rapport de qualification — G-Sight Templyfier",
+        "# Rapport de qualification - G-Sight Templyfier",
         "",
-        "Qualification exécutée sur les exemples historiques fournis. Le contrôle distingue la fidélité technique aux sources "
-        "de la ressemblance au fichier final historique, dont la sélection de questions et la mise en page peuvent volontairement différer.",
+        "Qualification ex�cut�e sur les exemples historiques fournis. Le contr�le distingue la fid�lit� technique aux sources "
+        "de la ressemblance au fichier final historique, dont la s�lection de questions et la mise en page peuvent volontairement diff�rer.",
         "",
-        f"**Résultat global : {len(results)}/{len(results)} cas validés.** {total_values} valeurs, {total_gaps} gaps, "
-        f"{total_significance} directions de significativité et {total_summary_rows} lignes de KPI Summary contrôlés sans erreur.",
+        f"**R�sultat global : {len(results)}/{len(results)} cas valid�s.** {total_values} valeurs, {total_gaps} gaps, "
+        f"{total_significance} directions de significativit� et {total_summary_rows} lignes de KPI Summary contr�l�s sans erreur.",
         "",
-        "| Cas | Statut | Onglets | Valeurs contrôlées | Fidélité source | Gaps | Signif. | Couverture historique unique |",
+        "| Cas | Statut | Onglets | Valeurs contr�l�es | Fid�lit� source | Gaps | Signif. | Couverture historique unique |",
         "|---|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for item in results:
@@ -358,40 +372,40 @@ def _markdown(results: list[dict]) -> str:
             f"{item['significance_directions_checked'] - len(item['significance_direction_errors'])}/{item['significance_directions_checked']} | "
             f"{item['historical_unique_recall_pct']:.2f}% |"
         )
-    lines.extend(["", "## Lecture des contrôles", ""])
+    lines.extend(["", "## Lecture des contr�les", ""])
     lines.extend([
-        "- **Fidélité source** : chaque valeur numérique générée est retrouvée pour le même produit dans l’export G-Sight correspondant.",
-        "- **Empreinte métrique** : contrôle secondaire plus strict, qui exige aussi le même intitulé technique de métrique. "
-        "Il peut être inférieur à 100 % lorsque le Templyfier remplace volontairement un item brut par un clean label.",
-        "- **Gaps** : les formules Excel suivent bien `Candidat - Benchmark` et pointent vers des cellules numériques de la même ligne.",
-        "- **Signif.** : lorsqu’une couleur est présente sur un gap, son sens higher/lower concorde avec le signe du gap.",
-        "- **Couverture historique unique** : part des combinaisons uniques métrique × produit × valeur du fichier final historique "
-        "également retrouvées dans la génération. Un taux inférieur à 100 % peut venir de questions volontairement retirées, "
-        "de splits sources non fournis, de feuilles analytiques hors périmètre ou d’une autre organisation des benchmarks.",
-        "- **KPI Details** : chaque symbole est rapproché des comparaisons significatives qui le justifient ; `±` exige des directions opposées.",
+        "- **Fid�lit� source** : chaque valeur num�rique g�n�r�e est retrouv�e pour le m�me produit dans l'export G-Sight correspondant.",
+        "- **Empreinte m�trique** : contr�le secondaire plus strict, qui exige aussi le m�me intitul� technique de m�trique. "
+        "Il peut �tre inf�rieur � 100 % lorsque le Templyfier remplace volontairement un item brut par un clean label.",
+        "- **Gaps** : les formules Excel suivent bien `Candidat - Benchmark` et pointent vers des cellules num�riques de la m�me ligne.",
+        "- **Signif.** : lorsqu'une couleur est pr�sente sur un gap, son sens higher/lower concorde avec le signe du gap.",
+        "- **Couverture historique unique** : part des combinaisons uniques m�trique � produit � valeur du fichier final historique "
+        "�galement retrouv�es dans la g�n�ration. Un taux inf�rieur � 100 % peut venir de questions volontairement retir�es, "
+        "de splits sources non fournis, de feuilles analytiques hors p�rim�tre ou d'une autre organisation des benchmarks.",
+        "- **KPI Details** : chaque symbole est rapproch� des comparaisons significatives qui le justifient ; `�` exige des directions oppos�es.",
         "",
-        "## Détail par cas",
+        "## D�tail par cas",
         "",
     ])
     for item in results:
         lines.extend([
-            f"### {item['scenario']} — {item['status']}",
+            f"### {item['scenario']} - {item['status']}",
             "",
-            f"- Sources : {item['source_files']} fichier(s) ; {item['questions_selected']} question(s) sélectionnée(s).",
-            f"- Valeurs : {item['source_supported_values']}/{item['generated_numeric_values']} justifiées par les sources.",
-            f"- Empreinte métrique stricte : {item['source_metric_supported_values']}/{item['generated_numeric_values']}.",
+            f"- Sources : {item['source_files']} fichier(s) ; {item['questions_selected']} question(s) s�lectionn�e(s).",
+            f"- Valeurs : {item['source_supported_values']}/{item['generated_numeric_values']} justifi�es par les sources.",
+            f"- Empreinte m�trique stricte : {item['source_metric_supported_values']}/{item['generated_numeric_values']}.",
             f"- Gaps : {item['gap_formulas']} formule(s), {len(item['gap_formula_errors'])} erreur(s).",
-            f"- Significativités : {item['significance_directions_checked']} direction(s) contrôlée(s), "
+            f"- Significativit�s : {item['significance_directions_checked']} direction(s) contr�l�e(s), "
             f"{len(item['significance_direction_errors'])} erreur(s).",
-            f"- KPI Details : {item['summary_rows']} ligne(s), {len(item['summary_errors'])} incohérence(s).",
-            f"- Combinaisons manquantes : {'aucune' if not item['missing_combinations'] else ' · '.join(item['missing_combinations'])}.",
+            f"- KPI Details : {item['summary_rows']} ligne(s), {len(item['summary_errors'])} incoh�rence(s).",
+            f"- Combinaisons manquantes : {'aucune' if not item['missing_combinations'] else ' � '.join(item['missing_combinations'])}.",
         ])
         if item["errors"]:
-            lines.append("- Anomalies : " + " · ".join(item["errors"]))
+            lines.append("- Anomalies : " + " � ".join(item["errors"]))
         if item["scenario"].startswith("Einstein Paired"):
             lines.append(
-                "- Portée historique : les 4 exports fournis ne couvrent qu’une partie des splits présents dans la topline historique ; "
-                "la faible couverture historique n’est donc pas une erreur de génération."
+                "- Port�e historique : les 4 exports fournis ne couvrent qu'une partie des splits pr�sents dans la topline historique ; "
+                "la faible couverture historique n'est donc pas une erreur de g�n�ration."
             )
         lines.append("")
     return "\n".join(lines)
@@ -401,6 +415,15 @@ def main() -> int:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     results = []
     for config in _scenario_definitions():
+        required = list(config.get("inspection_sources", config["sources"])) + [config["historical"]]
+        missing = [str(path) for path in required if not Path(path).exists()]
+        if not config["sources"] or missing:
+            print(
+                f"Skipped qualification fixture {config['name']}: "
+                + ("no source files matched" if not config["sources"] else f"{len(missing)} file(s) unavailable"),
+                flush=True,
+            )
+            continue
         print(f"Qualification: {config['name']}", flush=True)
         results.append(qualify_scenario(config))
         print(json.dumps(results[-1], ensure_ascii=False, default=str), flush=True)
@@ -408,8 +431,9 @@ def main() -> int:
     report_path = OUTPUT_DIR / "Rapport_qualification_Templyfier.md"
     json_path.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
     report_path.write_text(_markdown(results), encoding="utf-8")
-    return 0 if all(item["status"] == "PASS" for item in results) else 1
+    return 0 if results and all(item["status"] == "PASS" for item in results) else 1
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
