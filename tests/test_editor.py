@@ -68,6 +68,25 @@ class EditorTests(unittest.TestCase):
         self.assertEqual(_classify('Q-7-Bipolar attributes','',QUESTIONS['Q-7-Bipolar attributes'])[0],'Bipolaire')
         self.assertEqual(_classify('Q-8-Listing colours','',QUESTIONS['Q-8-Listing colours'])[0],'Listing')
 
+    def test_interrogative_categorical_questions_are_listing_not_standard(self):
+        aggregates = ['Mean', 'Top Box', 'Top 2 Boxes', 'Bottom 2 Boxes']
+        self.assertEqual(
+            _classify('Q_28_HOW_DRY', '', [
+                '1-I hanged it outside', '2-I hanged it inside', '3-In a dryer',
+            ] + aggregates)[0],
+            'Listing',
+        )
+        self.assertEqual(
+            _classify('Q_22_HOW_MANY_WASHES', '', ['1-One', '2-Two', '3-Three'] + aggregates)[0],
+            'Listing',
+        )
+        self.assertEqual(
+            _classify('Q-14-WHEN OPENING BOTTLE', '', [
+                '1-Very poor', '2-Somewhat poor', '3-Neither poor nor good', '4-Good', '5-Very good',
+            ] + aggregates)[0],
+            'Standard',
+        )
+
     def test_numbered_top_word_is_not_an_aggregate(self):
         self.assertNotEqual(_metric_key('1-On top of the bottle'),_metric_key('Top Box'))
 
@@ -154,6 +173,24 @@ class EditorTests(unittest.TestCase):
             build_smart_toplines(
                 [("test.xlsx", self.raw)], rows,
                 split_names=["TOTAL"], benchmark_positions=[0], standard_metrics=AGG,
+                include_screeners=False,
+            )
+
+    def test_selected_metric_missing_from_one_split_blocks_the_whole_download(self):
+        complete = self.raw
+        partial_questions = deepcopy(QUESTIONS)
+        partial_questions['Q-1-Overall liking'] = [
+            metric for metric in partial_questions['Q-1-Overall liking']
+            if metric != 'Bottom 2 Boxes'
+        ]
+        partial = source_bytes(overrides=partial_questions)
+        row = deepcopy(self.rows[0])
+        set_metric_selection(row, ['Mean', 'Bottom 2 Boxes'])
+        with self.assertRaisesRegex(TemplyfierError, 'missing metrics: Bottom 2 Boxes'):
+            build_smart_toplines(
+                [('total.xlsx', complete), ('split.xlsx', partial)],
+                export_rows([row]), split_names=['TOTAL', 'SPLIT'],
+                benchmark_positions=[0], standard_metrics=AGG,
                 include_screeners=False,
             )
 
@@ -337,6 +374,16 @@ class EditorTests(unittest.TestCase):
         b=source_bytes(overrides={'Q-1-Overall liking':['Mean','Top 3 Boxes']})
         info=inspect_smart_package([('a.xlsx',a),('b.xlsx',b)])
         self.assertEqual(set(info.questions[0].metrics),{'Mean','Top Box','Top 3 Boxes'})
+
+    def test_source_sheet_stage_overrides_incidental_stage_word_in_question(self):
+        workbook = load_workbook(BytesIO(source_bytes(overrides={
+            'Q_28_HOW_DRY': ['Mean', 'Top Box', 'Top 2 Boxes', 'Bottom 2 Boxes'],
+        })))
+        workbook.active.title = 'OVERALL - IN USE 2_TAILED'
+        buffer = BytesIO(); workbook.save(buffer)
+        info = inspect_smart_package([('usage.xlsx', buffer.getvalue())])
+        proposal = next(item for item in info.questions if item.question_id == 'Q_28_HOW_DRY')
+        self.assertEqual(proposal.stages, ('USE',))
 
     def test_monadic_and_paired_export_selected_answers_renames_and_colours(self):
         for paired in [False,True]:
