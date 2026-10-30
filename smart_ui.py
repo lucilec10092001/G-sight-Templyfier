@@ -30,7 +30,7 @@ from templyfier.smart import (
 # Increment whenever parsing/classification semantics change. Streamlit keeps
 # session_state across a hot app redeploy; without this salt, users re-uploading
 # the same files can unknowingly keep an obsolete analysis from the prior release.
-ANALYSIS_SCHEMA_VERSION = "v98"
+ANALYSIS_SCHEMA_VERSION = "v99"
 
 
 LOGGER = logging.getLogger("templyfier.smart_ui")
@@ -68,7 +68,7 @@ def _question_output_signature(frame):
 
 def _support_code(phase: str, file_key: str, exc: Exception) -> str:
     """Create a deterministic, data-free reference for support conversations."""
-    payload = f"v98|{phase}|{file_key}|{type(exc).__name__}|{exc}"
+    payload = f"v99|{phase}|{file_key}|{type(exc).__name__}|{exc}"
     return "TMP-" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:10].upper()
 
 
@@ -307,9 +307,7 @@ def render_smart_mode():
             result_inputs[0].product_keys[position]
             for position in cmr_benchmark_positions(state.get("cmr_matches", ()))
         ]
-    if detected_codes:
-        st.caption("Benchmarks detected automatically: " + " | ".join(detected_codes))
-    else:
+    if not detected_codes:
         st.caption(
             "The technical benchmark flag is not present in the uploaded files. "
             "Templyfier will ask for one quick confirmation below."
@@ -343,8 +341,6 @@ def render_smart_mode():
     uncertain = int(split_table["Split detection"].astype(str).eq("Review recommended").sum())
     if uncertain:
         st.warning(f"Please check {uncertain} proposed split name(s). Edit only the first column.", icon=":material/edit:")
-    else:
-        st.caption("Split names were detected with high confidence. They remain editable.")
 
     setup_signature = hashlib.sha1((
         str(study_format) + str(test_type) + benchmark_layout + str(mean_decimals)
@@ -547,13 +543,7 @@ def render_smart_mode():
             clean_product_labels[position] or info.product_names[position]
             for position in detected_positions
         ]
-        if benchmark_labels:
-            st.caption(
-                f"Benchmark selection ({'G-Sight' if benchmark_source == 'g-sight' else 'CMR' if benchmark_source == 'cmr' else 'confirmed'}): "
-                f"{benchmark_count} benchmark(s) - "
-                + " | ".join(benchmark_short_labels)
-            )
-        else:
+        if not benchmark_labels:
             st.error("Select at least one benchmark product to continue.")
         paired_swaps = {}
         paired_mappings = {}
@@ -748,19 +738,18 @@ def render_smart_mode():
                 ) in {"pret", "ready"}
                 for row in audit["rows"]
             )
-            st.success(f'Input plan ready - {split_count} split(s) x {len(benchmark_positions)} benchmark(s): {matched}/{expected} exports matched.')
+            plan_summary = f'{split_count} splits x {len(benchmark_positions)} benchmarks: {matched}/{expected} readings matched'
         else:
-            st.success(f'Input plan ready - {len(audit["rows"])} result file(s) checked.')
+            plan_summary = f'{len(audit["rows"])} result sources checked'
+        st.caption("Source check - " + plan_summary)
     else:
         st.error(f'Input plan needs attention - {len(audit["blockers"])} issue(s) must be corrected before generation.')
-    with st.expander("File and comparison checks", expanded=not audit["ready"]):
+    with st.expander("Technical source checks", expanded=not audit["ready"]):
         st.dataframe(pd.DataFrame(audit["rows"]), hide_index=True, width="stretch")
         if audit["blockers"]:
             st.error("\n\n".join(f" {message}" for message in audit["blockers"]))
         elif audit["warnings"]:
             st.warning("\n\n".join(f" {message}" for message in audit["warnings"]))
-        else:
-            st.success("All requested combinations are present and the product plans are consistent.", icon=":material/check_circle:")
 
     summary_scope = "total" if include_kpi_summary else "none"
     summary_metric_strategy = "priority"
@@ -924,7 +913,7 @@ def render_smart_mode():
         if summary_scope!='none' and summary_kpis.empty:next_steps.append('In Advanced options, select a summary KPI or turn off the KPI summary.')
         if next_steps:st.info('What to do next\n\n'+ '\n'.join(f'{i}. {item}' for i,item in enumerate(next_steps,1)))
 
-    _step("generate", "Generate the Excel file", "The existing safety checks still protect the export.")
+    _step("generate", "Generate the Excel file", "Choose the file name, then generate your toplines.")
     planned_workbook_sheets = (
         (["Screener(s)"] if include_screeners else [])
         + planned_topline_sheets
@@ -939,7 +928,6 @@ def render_smart_mode():
         quick_summary[1].metric("Splits", len(unique_splits))
         quick_summary[2].metric("Benchmarks", benchmark_count if test_type == "Monadic" else "Paired")
         quick_summary[3].metric("Worksheets", len(planned_topline_sheets) + len(planned_summary_sheets))
-        st.caption("Optional settings can be left untouched. Generate uses the choices and question table above.")
         quick_generate = st.button("Generate now", type="primary", width="stretch", disabled=not ready,
                                    key=f"smart_generate_quick_{key}", icon=":material/play_arrow:")
     with sidebar_generate_slot:
@@ -1009,7 +997,7 @@ def render_smart_mode():
             summary_cols[0].metric("Questions kept", report.get("questions", 0))
             summary_cols[1].metric("Questions excluded", report.get("questions_deleted", 0))
             summary_cols[2].metric("Rows written", report.get("data_rows_written", 0))
-            summary_cols[3].metric("Produits", report.get("products", 0))
+            summary_cols[3].metric("Products", report.get("products", 0))
             st.caption(
                 f"Study design: {report.get('test_type', '-')} | "
                 f"Generated splits: {len(report.get('splits', []))} | "
