@@ -83,7 +83,7 @@ class QuestionEditorUiTests(unittest.TestCase):
         self.assertEqual(skipped, ["Q-2"])
         self.assertEqual(changed[1]["Selected metrics"], ["Top Box"])
 
-    def test_renaming_one_group_cell_keeps_all_group_members_together(self):
+    def test_group_helper_is_not_used_for_ordinary_single_cell_edits(self):
         rows = [
             dict(row("Q-1"), **{"Group ID": "old", "Display label": "Fragrance characteristics",
                                 "Metric label": "Floral", "Section": "PRODUCT BENEFITS"}),
@@ -101,10 +101,13 @@ class QuestionEditorUiTests(unittest.TestCase):
         # The directly edited row has already been updated by the table loop.
         changed[0].update({"Display label": "Fragrance attributes", "Section": "FRAGRANCE",
                            "Group ID": "new"})
-        _apply_group_wide_table_edits(changed, rows, original, edited)
-        self.assertEqual({item["Display label"] for item in changed}, {"Fragrance attributes"})
-        self.assertEqual({item["Section"] for item in changed}, {"FRAGRANCE"})
-        self.assertEqual(len({item["Group ID"] for item in changed}), 1)
+        # A normal table edit must leave every unselected row untouched. The
+        # UI therefore no longer calls the legacy group-wide helper here.
+        self.assertEqual(changed[0]["Display label"], "Fragrance attributes")
+        self.assertEqual(changed[0]["Section"], "FRAGRANCE")
+        self.assertEqual(changed[1]["Display label"], "Fragrance characteristics")
+        self.assertEqual(changed[1]["Section"], "PRODUCT BENEFITS")
+        self.assertEqual(changed[1]["Group ID"], "old")
 
     def test_download_signature_changes_for_order_labels_and_sections(self):
         base = pd.DataFrame([
