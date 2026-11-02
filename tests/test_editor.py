@@ -336,19 +336,19 @@ class EditorTests(unittest.TestCase):
         from templyfier.smart import _questions_in_section_blocks, question_structure_summary
         rows = [
             {'Question ID': 'Q1', 'Section': 'FIRST', 'Display label': 'Fragrance attribute',
-             'Metric label': 'Fresh', 'Group ID': 'first-id', 'Stage': 'WET'},
+             'Metric label': 'Fresh', 'Group ID': 'family-id', 'Stage': 'WET'},
             {'Question ID': 'Q2', 'Section': 'OTHER', 'Display label': 'Independent',
              'Metric label': '', 'Group ID': '', 'Stage': 'WET'},
             {'Question ID': 'Q3', 'Section': 'ATTRIBUTES', 'Display label': 'Fragrance attribute',
-             'Metric label': 'Natural', 'Group ID': 'second-id', 'Stage': 'WET'},
+             'Metric label': 'Natural', 'Group ID': 'family-id', 'Stage': 'WET'},
             {'Question ID': 'Q4', 'Section': 'ATTRIBUTES', 'Display label': 'Fragrance attribute',
-             'Metric label': 'Clean', 'Group ID': 'second-id', 'Stage': 'WET'},
+             'Metric label': 'Clean', 'Group ID': 'family-id', 'Stage': 'WET'},
         ]
         self.assertEqual(question_structure_summary(rows), {
             'section_headers': 3,
             'item_families': 1,
             'split_families': 1,
-            'split_family_names': ['fragrance attribute'],
+            'split_family_names': ['Fragrance attribute'],
         })
         ordered = _questions_in_section_blocks(rows)
         for section in {row['Section'] for row in ordered}:
@@ -364,6 +364,20 @@ class EditorTests(unittest.TestCase):
         positions = [ordered.index(row) for row in family]
         self.assertEqual(positions, list(range(min(positions), max(positions) + 1)))
         self.assertEqual(len({row['Group ID'] for row in family}), 1)
+        self.assertEqual(question_structure_summary(ordered)['split_families'], 0)
+
+    def test_same_label_does_not_merge_distinct_item_families(self):
+        from templyfier.smart import _questions_in_section_blocks, question_structure_summary
+        rows = [
+            {'Question ID': 'Q1', 'Section': 'FIRST', 'Display label': 'Attributes',
+             'Metric label': 'Fresh', 'Group ID': 'family-one', 'Stage': 'WET'},
+            {'Question ID': 'Q2', 'Section': 'SECOND', 'Display label': 'Attributes',
+             'Metric label': 'Soft', 'Group ID': 'family-two', 'Stage': 'WET'},
+        ]
+        ordered = _questions_in_section_blocks(rows)
+        self.assertEqual([row['Section'] for row in ordered], ['FIRST', 'SECOND'])
+        self.assertEqual([row['Group ID'] for row in ordered], ['family-one', 'family-two'])
+        self.assertEqual(question_structure_summary(ordered)['item_families'], 2)
         self.assertEqual(question_structure_summary(ordered)['split_families'], 0)
 
     def test_partial_profile_new_rows_do_not_create_nan_groups(self):
