@@ -1,4 +1,4 @@
-# G-Sight Templyfier v101
+# G-Sight Templyfier v102
 
 Templyfier turns G-Sight DataViz outputs into editable Excel toplines for consumer research studies. The interface is in English and the question detection supports English and French source wording. No consumer files or credentials are included in this repository.
 
@@ -65,5 +65,5 @@ For an internal server deployment, follow `SERVER_DEPLOYMENT.md`. The current pu
 
 ## Validation
 
-Version 101 isolates ordinary table edits to one row and propagates a value only through explicit **Edit together** selection. See `CHANGES_v101.md` and `VALIDATION_v101.md`.
+Version 102 consolidates rows with the same Item family name while preserving the v101 rule that ordinary cell edits remain local. See `CHANGES_v102.md` and `VALIDATION_v102.md`.
 
