@@ -313,12 +313,13 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
         "**Section header** creates a coloured Excel divider. **Item family** groups shared items "
         "such as Colour under one variable. Select several rows with Edit together to assign either value."
     )
-    edited = st.data_editor(
-        pd.DataFrame(visible), hide_index=True, width="stretch", height=560,
-        key=f"questions_table_{key}_{revision}_{view_key}",
-        disabled=["G-Sight question", "Status"],
-        column_order=column_sets[table_view],
-        column_config={
+    with st.form(f"questions_table_form_{key}_{revision}_{view_key}"):
+        edited = st.data_editor(
+            pd.DataFrame(visible), hide_index=True, width="stretch", height=560,
+            key=f"questions_table_{key}_{revision}_{view_key}",
+            disabled=["G-Sight question", "Status"],
+            column_order=column_sets[table_view],
+            column_config={
             "Edit together": st.column_config.CheckboxColumn(
                 "Edit together",
                 help="Tick several rows, then edit one selected row. The value is copied to every selected row.",
@@ -363,8 +364,11 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
                 help="Open the list and tick the results to show for this question in Excel.",
             ),
             "Status": st.column_config.TextColumn(width="small"),
-        },
-    )
+            },
+        )
+        apply_table_changes = st.form_submit_button(
+            "Apply table changes", type="primary", icon=":material/check:"
+        )
 
     selected_ids = edited.loc[
         edited["Edit together"].astype(bool), "G-Sight question"
@@ -464,14 +468,14 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
             model["reconciled_families"] = structure_before["split_families"]
         return changed, {row["Question ID"]: row for row in changed}
 
-    if selected_ids and not shared_changes:
+    if apply_table_changes and selected_ids and not shared_changes:
         st.info(
             f"**{len(selected_ids)} question(s) selected.** Now edit one selected cell; "
             "the same value will be copied to every selected question.",
             icon=":material/checklist:",
         )
 
-    if selected_ids and shared_changes:
+    if apply_table_changes and selected_ids and shared_changes:
         try:
             changed, _ = apply_visible_table_edits(shared_changes)
             columns = ", ".join(shared_changes)
@@ -483,7 +487,7 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
         except ValueError as exc:
             st.error(str(exc))
 
-    if table_dirty and not shared_changes:
+    if apply_table_changes and table_dirty and not shared_changes:
         try:
             changed, _ = apply_visible_table_edits()
             if commit(changed, "Question table updated."):
@@ -491,18 +495,22 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
         except ValueError as exc:
             st.error(str(exc))
 
-    st.caption("Question-table edits are saved automatically.")
+    st.caption(
+        "Edit or paste as many cells as needed, then select **Apply table changes** once. "
+        "Templyfier will regroup the item families after saving."
+    )
 
     with st.expander("Change question order - optional", expanded=False):
         st.caption(
             "Sections and item families are shown as complete blocks. Drag a block header to move it, "
             "or select questions to reorder them inside their block. Changes apply only after **Save order**."
         )
-        order_result = question_order(rows, revision, f"order_{key}")
+        structured_rows = _questions_in_section_blocks(rows)
+        order_result = question_order(structured_rows, revision, f"order_{key}")
         event = order_result.reordered
         if event and event.get("revision") == revision:
             try:
-                if event["ids"] != [row["Question ID"] for row in rows]:
+                if event["ids"] != [row["Question ID"] for row in structured_rows]:
                     ordered = _questions_in_section_blocks(reorder_rows(rows, event["ids"]))
                     if commit(ordered, "Question order updated; sections and item families kept together."):
                         st.rerun()
@@ -536,9 +544,10 @@ def render_optional_question_tools(key, memory=None, protected_ids=(), project_k
         render_group_assistant(rows, key, revision, commit, ignored_by_memory=ignored_by_memory,
                                stage_names=stage_order)
     if include_reorder:
-        result = question_order(rows, revision, f"order_optional_{key}")
+        structured_rows = _questions_in_section_blocks(rows)
+        result = question_order(structured_rows, revision, f"order_optional_{key}")
         event = result.reordered
-        if event and event.get("revision") == revision and event["ids"] != [row["Question ID"] for row in rows]:
+        if event and event.get("revision") == revision and event["ids"] != [row["Question ID"] for row in structured_rows]:
             commit(
                 _questions_in_section_blocks(reorder_rows(rows, event["ids"])),
                 "Question order updated; sections and item families kept together.",
