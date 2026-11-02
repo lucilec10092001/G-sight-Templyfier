@@ -1275,7 +1275,7 @@ def _question_priority(question_id: str, label: str, section: str, first_row: in
     elif section == "PRODUCT EVALUATION" and any(word in combined for word in ("new different", "new & different")):
         rank = 135
     elif section == "FRAGRANCE STRENGTH" and re.match(r"q\s*16(?:\s|$)", qid) and "intensity" in combined:
-        # Common Paired HUT flow: OFO  liking touchpoint  overall intensity  strength touchpoints.
+        # Common Paired HUT flow: OFO, liking touchpoint, overall intensity, then strength touchpoints.
         rank = 245
     elif section == "FIT" and re.search(r"\b(?:neat|wet|damp)\b", combined):
         rank = 430
