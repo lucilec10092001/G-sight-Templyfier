@@ -3138,8 +3138,8 @@ def _summary_signal_from_values(
     if not higher_is_better:
         favourable = not favourable
     if favourable:
-        return "" if confidence == 95 else "?"
-    return "" if confidence == 95 else "?"
+        return "WIN95" if confidence == 95 else "WIN90"
+    return "LOSS95" if confidence == 95 else "LOSS90"
 
 
 def _summary_metric_rank(metric: str) -> int:
@@ -3160,13 +3160,13 @@ def _summary_metric_rank(metric: str) -> int:
 def _pick_summary_signal(signals: Sequence[tuple[str, str]]) -> str:
     if not signals:
         return "="
-    ordered = sorted(signals, key=lambda item: (_summary_metric_rank(item[0]), item[1] in {"?", "?"}))
-    directions = {"up" if symbol in {"", "?"} else "down" for _, symbol in ordered}
+    ordered = sorted(signals, key=lambda item: (_summary_metric_rank(item[0]), item[1] in {"WIN90", "LOSS90"}))
+    directions = {"up" if symbol in {"WIN95", "WIN90"} else "down" for _, symbol in ordered}
     if len(directions) > 1:
         # Conflicting metrics: use the most decision-relevant retained metric
         # (Mean, then T2B, Top Box, JAR/B2B) instead of overstating consensus.
         return ordered[0][1]
-    solid = next((symbol for _, symbol in ordered if symbol in {"", ""}), None)
+    solid = next((symbol for _, symbol in ordered if symbol in {"WIN95", "LOSS95"}), None)
     return solid or ordered[0][1]
 
 
@@ -3174,7 +3174,7 @@ def _pick_summary_decision(entries: Sequence[dict], strategy: str) -> dict:
     """Choose one transparent summary decision from all retained metrics."""
     ordered_all = sorted(entries, key=lambda item: _summary_metric_rank(item["metric"]))
     if ordered_all and not any(item.get("direction_defined", True) for item in ordered_all):
-        return {"symbol": "-", "chosen": ordered_all[0], "conflict": False,
+        return {"symbol": "NA", "chosen": ordered_all[0], "conflict": False,
                 "reason": "Aucun sens favorable n'est d�fini pour cette question"}
     significant = [item for item in ordered_all if item.get("signal")]
     normalized_strategy = _normal(strategy).replace(" ", "_")
@@ -3189,15 +3189,15 @@ def _pick_summary_decision(entries: Sequence[dict], strategy: str) -> dict:
     if not significant:
         return {"symbol": "=", "chosen": ordered_all[0] if ordered_all else None, "conflict": False,
                 "reason": "Aucune diff�rence significative sur les m�triques retenues"}
-    directions = {"win" if item["signal"] in {"", "?"} else "loss" for item in significant}
+    directions = {"win" if item["signal"] in {"WIN95", "WIN90"} else "loss" for item in significant}
     if normalized_strategy in {"consensus", "accord"} and len(directions) > 1:
-        return {"symbol": "�", "chosen": None, "conflict": True,
+        return {"symbol": "MIXED", "chosen": None, "conflict": True,
                 "reason": "Les m�triques significatives donnent des directions oppos�es"}
     if len(directions) > 1:
         chosen = significant[0]
         return {"symbol": chosen["signal"], "chosen": chosen, "conflict": True,
                 "reason": f"R�sultats partag�s - priorit� donn�e � {chosen['metric']}"}
-    solid = next((item for item in significant if item["signal"] in {"", ""}), None)
+    solid = next((item for item in significant if item["signal"] in {"WIN95", "LOSS95"}), None)
     chosen = solid or significant[0]
     return {"symbol": chosen["signal"], "chosen": chosen, "conflict": False,
             "reason": f"R�sultat significatif retenu sur {chosen['metric']}"}
@@ -3239,21 +3239,21 @@ def _write_summary_block(
     header_fill = PatternFill("solid", fgColor="000000")
     neutral_fill = PatternFill("solid", fgColor="EFEFEF")
     fills = {
-        "": PatternFill("solid", fgColor="97E39C"),
-        "?": PatternFill("solid", fgColor="C7F0CC"),
-        "": PatternFill("solid", fgColor="F5B7AD"),
-        "?": PatternFill("solid", fgColor="FADBD4"),
-        "�": PatternFill("solid", fgColor="FFF2CC"),
-        "-": neutral_fill,
+        "WIN95": PatternFill("solid", fgColor="97E39C"),
+        "WIN90": PatternFill("solid", fgColor="C7F0CC"),
+        "LOSS95": PatternFill("solid", fgColor="F5B7AD"),
+        "LOSS90": PatternFill("solid", fgColor="FADBD4"),
+        "MIXED": PatternFill("solid", fgColor="FFF2CC"),
+        "NA": neutral_fill,
         "=": neutral_fill,
     }
     fonts = {
-        "": Font(color="008A16", bold=True, size=14),
-        "?": Font(color="008A16", bold=True, size=14),
-        "": Font(color="C00000", bold=True, size=14),
-        "?": Font(color="C00000", bold=True, size=14),
-        "�": Font(color="9C6500", bold=True, size=14),
-        "-": Font(color="7A7A7A", bold=True, size=12),
+        "WIN95": Font(color="008A16", bold=True, size=10),
+        "WIN90": Font(color="008A16", bold=True, size=10),
+        "LOSS95": Font(color="C00000", bold=True, size=10),
+        "LOSS90": Font(color="C00000", bold=True, size=10),
+        "MIXED": Font(color="9C6500", bold=True, size=9),
+        "NA": Font(color="7A7A7A", bold=True, size=10),
         "=": Font(color="7A7A7A", bold=True, size=12),
     }
     thin = Side(style="thin", color="C9C9C9")
@@ -3395,7 +3395,11 @@ def _write_summary_block(
     legend_row = header_row + len(product_positions) + 2
     sheet.merge_cells(start_row=legend_row, start_column=1, end_row=legend_row, end_column=max_col)
     legend = sheet.cell(legend_row, 1)
-    legend.value = " win 95%   ? win 90%   = parity   � r�sultats partag�s   - non interpr�t�   ? loss 90%    loss 95%"
+    legend.value = (
+        "WIN95 = win 95% | WIN90 = win 90% | = parity | "
+        "MIXED = mixed results | NA = not interpreted | "
+        "LOSS90 = loss 90% | LOSS95 = loss 95%"
+    )
     legend.font = Font(color="666666", italic=True, size=9)
     legend.alignment = Alignment(horizontal="left")
     return legend_row + 3
