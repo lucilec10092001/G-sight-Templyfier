@@ -1,16 +1,23 @@
 import unittest
+import inspect
 
 import pandas as pd
 
 from question_editor import (
     _apply_group_wide_table_edits, _apply_selected_metrics, _apply_table_metric_edit,
-    _selected_cell_changes,
+    _selected_cell_changes, render_question_editor,
 )
 from .test_client_memory import row
 from smart_ui import _question_output_signature
 
 
 class QuestionEditorUiTests(unittest.TestCase):
+    def test_question_table_batches_edits_until_explicit_apply(self):
+        source = inspect.getsource(render_question_editor)
+        self.assertIn('with st.form(f"questions_table_form_', source)
+        self.assertIn('"Apply table changes"', source)
+        self.assertIn('if apply_table_changes and table_dirty', source)
+
     def test_edit_together_detects_one_stage_edit_on_selected_rows(self):
         original = [
             {"Edit together": False, "G-Sight question": "Q-1", "Stage": "Wet", "Status": "Ready"},
