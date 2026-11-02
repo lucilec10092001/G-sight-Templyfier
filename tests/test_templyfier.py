@@ -46,7 +46,7 @@ SKIP_CLT_FILES = [
 ]
 
 if not REFERENCE.exists() or not RAW_FILES:
-    raise unittest.SkipTest("Fichiers d’exemple absents.")
+    raise unittest.SkipTest("Fichiers d'exemple absents.")
 
 
 class TemplyfierRegressionTests(unittest.TestCase):
@@ -158,19 +158,19 @@ class TemplyfierRegressionTests(unittest.TestCase):
     def test_tutorial_uses_plain_language_and_explicit_upload_instructions(self):
         tutorial = (ROOT / "onboarding.py").read_text(encoding="utf-8")
         interface = (ROOT / "smart_ui.py").read_text(encoding="utf-8")
-        self.assertIn("5 splits face à 2 benchmarks = 10 exports G-Sight", tutorial)
-        self.assertIn("chaque combinaison split × benchmark", interface)
+        self.assertIn("5 splits face � 2 benchmarks = 10 exports G-Sight", tutorial)
+        self.assertIn("chaque combinaison split � benchmark", interface)
         self.assertNotIn("profil Templyfier JSON", tutorial)
         self.assertNotIn("rapport JSON", interface)
         self.assertNotIn("MaxDiff", tutorial)
-        self.assertNotIn('icon="✓"', interface)
-        self.assertNotIn("Lecture CMI proposée", interface)
-        self.assertNotIn("cœur parfum", interface)
+        self.assertNotIn('icon="V"', interface)
+        self.assertNotIn("Lecture CMI propos�e", interface)
+        self.assertNotIn("cour parfum", interface)
 
     def test_monadic_gaps_and_significance_colours_are_enabled_by_default(self):
         interface = (ROOT / "smart_ui.py").read_text(encoding="utf-8")
         self.assertIn('settings.get("show_monadic_gaps", True)', interface)
-        self.assertIn("leurs couleurs de significativité (recommandé)", interface)
+        self.assertIn("leurs couleurs de significativit� (recommand�)", interface)
 
     def test_detects_arbitrary_split_values_from_gsight_search(self):
         workbook = load_workbook(BytesIO(self._paired_example_bytes()))
@@ -178,7 +178,7 @@ class TemplyfierRegressionTests(unittest.TestCase):
         buffer = BytesIO()
         workbook.save(buffer)
         info = inspect_smart_package([("arbitrary_split.xlsx", buffer.getvalue())])
-        self.assertEqual(info.inputs[0].split_name, "NORTH · HEAVY USERS")
+        self.assertEqual(info.inputs[0].split_name, "NORTH � HEAVY USERS")
 
     def test_builds_formulas_and_matching_values(self):
         _, infos = inspect_package(REFERENCE, [(path.name, path) for path in RAW_FILES])
@@ -302,7 +302,7 @@ class TemplyfierRegressionTests(unittest.TestCase):
         self.assertFalse(favorite.keep)
         self.assertEqual(favorite.question_type, "Delete")
         self.assertEqual(favorite.section, "HORS TOPLINES")
-        self.assertEqual(proposal_to_row(favorite)["CMI note"], "Question technique laissée de côté")
+        self.assertEqual(proposal_to_row(favorite)["CMI note"], "Question technique laiss�e de c�t�")
 
         benefits = [item for item in info.questions if "-Benefits-" in item.question_id and item.keep]
         attributes = [item for item in info.questions if "-Attributes-" in item.question_id]
@@ -352,7 +352,7 @@ class TemplyfierRegressionTests(unittest.TestCase):
         comparison = next(item for item in yumos_info.questions if item.question_id == "Q-10-Comparison to current")
         comparison_row = proposal_to_row(comparison)
         self.assertTrue(comparison_row["Keep"])
-        self.assertIn("À confirmer", comparison_row["CMI note"])
+        self.assertIn("� confirmer", comparison_row["CMI note"])
 
     def test_clean_labels_only_remove_the_technical_question_prefix(self):
         self.assertEqual(
@@ -435,7 +435,7 @@ class TemplyfierRegressionTests(unittest.TestCase):
         self.assertEqual(info.study_format, "HUT / in-use")
         self.assertEqual(info.suggested_benchmark_count, 2)
         self.assertEqual({item.split_name for item in info.inputs}, {"18-40 YO", "41-64 YO"})
-        self.assertEqual(sum(item.role == "Résultats" for item in info.inputs), 2)
+        self.assertEqual(sum(item.role == "R�sultats" for item in info.inputs), 2)
         self.assertTrue(any("pas des touchpoints" in warning for warning in info.warnings))
 
     def test_hut_strength_recipe_and_two_benchmark_gaps(self):
@@ -492,7 +492,7 @@ class TemplyfierRegressionTests(unittest.TestCase):
 
     def test_selected_two_tailed_colours_are_preserved_instead_of_delta_palette(self):
         if not DATAVIZ_TEST.exists():
-            self.skipTest("DataViz de contrôle des couleurs absent.")
+            self.skipTest("DataViz de contr�le des couleurs absent.")
         info = inspect_smart_package([(DATAVIZ_TEST.name, DATAVIZ_TEST)])
         chosen = next(item for item in info.questions if item.question_id == "Q-1-1-Overall opinion")
         row = proposal_to_row(chosen)
@@ -519,7 +519,7 @@ class TemplyfierRegressionTests(unittest.TestCase):
 
     def test_hiding_monadic_gaps_preserves_selected_two_tailed_colours_on_values(self):
         if not DATAVIZ_TEST.exists():
-            self.skipTest("DataViz de contrôle des couleurs absent.")
+            self.skipTest("DataViz de contr�le des couleurs absent.")
         info = inspect_smart_package([(DATAVIZ_TEST.name, DATAVIZ_TEST)])
         chosen = next(item for item in info.questions if item.question_id == "Q-1-1-Overall opinion")
         row = proposal_to_row(chosen)
@@ -693,7 +693,7 @@ class TemplyfierRegressionTests(unittest.TestCase):
             for row in range(5, 10)
             for col in range(2, summary.max_column + 1)
         }
-        self.assertTrue(symbols.issubset({"▲", "△", "=", "▽", "▼"}))
+        self.assertTrue(symbols.issubset({"WIN95", "WIN90", "=", "LOSS90", "LOSS95"}))
         self.assertTrue(symbols - {"="})
         self.assertEqual(report["summary_scope"], "total")
 
@@ -721,9 +721,9 @@ class TemplyfierRegressionTests(unittest.TestCase):
         vs_vernel = workbook["KPI Summary vs Vernel"]
         # MIX...4108 is significantly above both controls on OPO: it must be a win.
         self.assertGreater(workbook["TOTAL vs Yumos"]["H7"].value, workbook["TOTAL vs Yumos"]["C7"].value)
-        self.assertEqual(vs_yumos["B6"].value, "▲")
+        self.assertEqual(vs_yumos["B6"].value, "WIN95")
         self.assertGreater(workbook["TOTAL vs Vernel"]["H7"].value, workbook["TOTAL vs Vernel"]["C7"].value)
-        self.assertEqual(vs_vernel["B6"].value, "▲")
+        self.assertEqual(vs_vernel["B6"].value, "WIN95")
         # Each benchmark sheet follows its own selected 2_TAILED export exactly.
         self.assertEqual(vs_yumos["B5"].value, "=")
         self.assertEqual(vs_vernel["B5"].value, "=")
@@ -736,7 +736,7 @@ class TemplyfierRegressionTests(unittest.TestCase):
             info, ["TOTAL", "TOTAL"], (0, 1), test_type="Monadic", automatic_exports=True
         )
         self.assertTrue(complete["ready"])
-        self.assertEqual({row["Contrôle"] for row in complete["rows"]}, {"Prêt"})
+        self.assertEqual({row["Contr�le"] for row in complete["rows"]}, {"Pr�t"})
         incomplete = audit_input_plan(
             info, ["TOTAL", "18-40 YO"], (0, 1), test_type="Monadic", automatic_exports=True
         )
@@ -765,18 +765,18 @@ class TemplyfierRegressionTests(unittest.TestCase):
         self.assertEqual(report["summary_detail_sheet"], "KPI Details")
         details = workbook["KPI Details"]
         headers = [details.cell(1, col).value for col in range(1, details.max_column + 1)]
-        self.assertEqual(headers[-5:], ["Valeur benchmark", "Écart", "Seuil", "Résultat", "Explication"])
+        self.assertEqual(headers[-5:], ["Valeur benchmark", "�cart", "Seuil", "R�sultat", "Explication"])
         # DELTA used to create artificial conflicts here. The selected
         # 2_TAILED exports contain no supported opposite-direction conflict.
-        self.assertFalse(any(details.cell(row, 13).value == "±" for row in range(2, details.max_row + 1)))
-        self.assertFalse(any("directions opposées" in str(details.cell(row, 14).value) for row in range(2, details.max_row + 1)))
+        self.assertFalse(any(details.cell(row, 13).value == "MIXED" for row in range(2, details.max_row + 1)))
+        self.assertFalse(any("directions oppos�es" in str(details.cell(row, 14).value) for row in range(2, details.max_row + 1)))
 
     def test_cmi_can_override_the_favourable_scale_direction(self):
         self.assertTrue(_summary_higher_is_better("Mean", {"Sens favorable": "Automatique"}))
         self.assertFalse(_summary_higher_is_better("Mean", {"Sens favorable": "Plus bas"}))
-        self.assertTrue(_summary_higher_is_better("Just about right", {"Sens favorable": "Idéal au centre"}))
-        self.assertFalse(_summary_higher_is_better("Too strong", {"Sens favorable": "Idéal au centre"}))
-        self.assertIsNone(_summary_higher_is_better("Mean", {"Sens favorable": "Idéal au centre"}))
+        self.assertTrue(_summary_higher_is_better("Just about right", {"Sens favorable": "Id�al au centre"}))
+        self.assertFalse(_summary_higher_is_better("Too strong", {"Sens favorable": "Id�al au centre"}))
+        self.assertIsNone(_summary_higher_is_better("Mean", {"Sens favorable": "Id�al au centre"}))
         self.assertIsNone(_summary_higher_is_better("Mean", {"Sens favorable": "Neutre"}))
 
     def test_kpi_summary_can_stack_every_split(self):
@@ -890,7 +890,7 @@ class TemplyfierRegressionTests(unittest.TestCase):
             summary_scope="total",
         )
         workbook = load_workbook(BytesIO(data), data_only=False)
-        self.assertEqual(workbook["KPI Summary"]["B5"].value, "▲")
+        self.assertEqual(workbook["KPI Summary"]["B5"].value, "WIN95")
 
     def test_cmi_can_override_metrics_pair_direction_and_rendering(self):
         raw = self._paired_example_bytes()
@@ -1021,8 +1021,8 @@ class TemplyfierRegressionTests(unittest.TestCase):
         matches = match_cmr_products(
             ("Y1M", "V2R", "D6A", "E4L", "C5O", "M3Q"),
             (
-                "Yumos - <No Line> - Orchid - Türkiye - 2024 345494",
-                "Vernel - Aromatherapy - Fresh Rose - Türkiye - 2026 357653",
+                "Yumos - <No Line> - Orchid - T�rkiye - 2024 345494",
+                "Vernel - Aromatherapy - Fresh Rose - T�rkiye - 2026 357653",
                 "MIX260004108 1.17% MIX260004108",
                 "MIX260004063 1.22% MIX260004063",
                 "MIX260004070 1.38% MIX260004070",
@@ -1041,7 +1041,7 @@ class TemplyfierRegressionTests(unittest.TestCase):
                 "CHEERFUL G MYSTICAL",
             ],
         )
-        self.assertTrue(all(item.confidence == "Élevée" for item in matches))
+        self.assertTrue(all(item.confidence == "�lev�e" for item in matches))
         candidate = matches[2]
         self.assertEqual(cmr_product_label(candidate, "fantasy"), "ELLA G BLOOM")
         self.assertEqual(cmr_product_label(candidate, "formula"), "MIX260004108")
@@ -1096,3 +1096,4 @@ class TemplyfierRegressionTests(unittest.TestCase):
         self.assertEqual(_excel_safe_value("loss\x1f95%"), "loss95%")
         self.assertEqual(_excel_safe_value("line one\nline two"), "line one\nline two")
         self.assertEqual(_excel_safe_value(42), 42)
+
