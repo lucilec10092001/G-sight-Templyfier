@@ -351,6 +351,14 @@ class EditorTests(unittest.TestCase):
             'split_family_names': ['fragrance attribute'],
         })
         ordered = _questions_in_section_blocks(rows)
+        for section in {row['Section'] for row in ordered}:
+            section_positions = [
+                index for index, row in enumerate(ordered) if row['Section'] == section
+            ]
+            self.assertEqual(
+                section_positions,
+                list(range(min(section_positions), max(section_positions) + 1)),
+            )
         family = [row for row in ordered if row['Display label'] == 'Fragrance attribute']
         self.assertEqual({row['Section'] for row in family}, {'ATTRIBUTES'})
         positions = [ordered.index(row) for row in family]
