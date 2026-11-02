@@ -15,3 +15,10 @@ class QuestionOrderComponentTests(unittest.TestCase):
         self.assertIn('if(e.shiftKey && anchor!==null)', ORDER_JS)
         self.assertIn("button('Discard moves'", ORDER_JS)
         self.assertIn('dragIds=rows.filter(r=>selected.has(r.id))', ORDER_JS)
+
+    def test_sections_and_item_families_are_rendered_as_blocks(self):
+        self.assertIn("header.className='section'", ORDER_JS)
+        self.assertIn('Select section ${r.sectionLabel}', ORDER_JS)
+        self.assertIn("header.className='group'", ORDER_JS)
+        self.assertIn('Select group ${r.groupLabel}', ORDER_JS)
+
