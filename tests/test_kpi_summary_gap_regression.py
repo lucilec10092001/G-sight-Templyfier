@@ -2,6 +2,7 @@ import unittest
 from io import BytesIO
 
 from openpyxl import Workbook, load_workbook
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 
 from templyfier.smart import build_smart_toplines, inspect_smart_package, proposal_to_row
 
@@ -77,7 +78,16 @@ class KpiSummaryGapRegressionTests(unittest.TestCase):
         topline = workbook["TOTAL"]
         summary = workbook["KPI Summary"]
         self.assertFalse(topline["E6"].fill.patternType)
-        self.assertEqual(summary["B5"].value, "")
+        self.assertEqual(summary["B5"].value, "WIN95")
+        text_values = [
+            cell.value
+            for sheet in workbook.worksheets
+            for row_cells in sheet.iter_rows()
+            for cell in row_cells
+            if isinstance(cell.value, str)
+        ]
+        self.assertFalse(any(ILLEGAL_CHARACTERS_RE.search(value) for value in text_values))
+        self.assertTrue(any("WIN95 = win 95%" in value for value in text_values))
 
     def test_composite_product_headers_still_identify_repeated_benchmark_code(self):
         raw = self._composite_header_export()
