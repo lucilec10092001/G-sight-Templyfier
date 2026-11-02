@@ -144,6 +144,56 @@ class EditorTests(unittest.TestCase):
             self.assertEqual(sheet.cell(sheet.max_row, 1).border.bottom.style, 'medium')
             self.assertEqual(sheet.cell(sheet.max_row, 2).border.bottom.style, 'medium')
 
+    def test_paired_columns_are_presented_as_clear_comparison_blocks(self):
+        raw = source_bytes(paired=True)
+        _, rows = prepared(raw)
+        selected = next(row for row in rows if row['Question ID'] == 'Q-1-Overall liking')
+        for include_deltas, expected_merge, expected_headers in (
+            (True, 'C1:E1', ('Benchmark', 'Candidate', 'Gap')),
+            (False, 'C1:D1', ('Benchmark', 'Candidate')),
+        ):
+            data, _ = build_smart_toplines(
+                [('paired.xlsx', raw)], export_rows([selected]),
+                split_names=['TOTAL'], benchmark_positions=(), standard_metrics=AGG,
+                include_screeners=False, include_sections=False, test_type='Paired',
+                include_deltas=include_deltas,
+            )
+            sheet = load_workbook(BytesIO(data), data_only=False).active
+            self.assertIn(expected_merge, {str(cell_range) for cell_range in sheet.merged_cells.ranges})
+            self.assertEqual(sheet['C1'].value, 'PAIR 1')
+            self.assertEqual(sheet['C2'].value, 'Candidate vs Benchmark')
+            self.assertEqual(tuple(sheet.cell(5, col).value for col in range(3, 3 + len(expected_headers))), expected_headers)
+            self.assertEqual(sheet.freeze_panes, 'C6')
+
+    def test_multiple_paired_blocks_keep_independent_headers_and_spacers(self):
+        workbook = load_workbook(BytesIO(source_bytes(paired=True)))
+        source = workbook.active
+        for destination_col, source_col, name, sample, code in (
+            (5, 3, 'Benchmark 2', '48 - B2', 'C'),
+            (6, 4, 'Candidate 2', '48 - C2', 'D'),
+        ):
+            source.cell(3, destination_col).value = name
+            source.cell(4, destination_col).value = sample
+            source.cell(5, destination_col).value = code
+            for row in range(6, source.max_row + 1):
+                source.cell(row, destination_col).value = source.cell(row, source_col).value
+        buffer = BytesIO(); workbook.save(buffer)
+        raw = buffer.getvalue()
+        _, rows = prepared(raw)
+        selected = next(row for row in rows if row['Question ID'] == 'Q-1-Overall liking')
+        data, report = build_smart_toplines(
+            [('paired.xlsx', raw)], export_rows([selected]),
+            split_names=['TOTAL'], benchmark_positions=(), standard_metrics=AGG,
+            include_screeners=False, include_sections=False, test_type='Paired',
+            include_deltas=True,
+        )
+        sheet = load_workbook(BytesIO(data), data_only=False).active
+        merges = {str(cell_range) for cell_range in sheet.merged_cells.ranges}
+        self.assertTrue({'C1:E1', 'G1:I1'}.issubset(merges))
+        self.assertEqual((sheet['C1'].value, sheet['G1'].value), ('PAIR 1', 'PAIR 2'))
+        self.assertEqual(sheet.column_dimensions['F'].width, 3)
+        self.assertEqual(report['pairs'], 2)
+
     def test_repeated_sections_are_written_as_single_contiguous_blocks(self):
         rows = export_rows(self.rows[:3])
         rows[0]['Section'] = 'FRAGRANCE BENEFITS'
