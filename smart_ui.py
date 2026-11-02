@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 from pathlib import Path
+import traceback
 
 import pandas as pd
 import streamlit as st
@@ -30,7 +31,7 @@ from templyfier.smart import (
 # Increment whenever parsing/classification semantics change. Streamlit keeps
 # session_state across a hot app redeploy; without this salt, users re-uploading
 # the same files can unknowingly keep an obsolete analysis from the prior release.
-ANALYSIS_SCHEMA_VERSION = "v103"
+ANALYSIS_SCHEMA_VERSION = "v104"
 
 
 LOGGER = logging.getLogger("templyfier.smart_ui")
@@ -68,7 +69,7 @@ def _question_output_signature(frame):
 
 def _support_code(phase: str, file_key: str, exc: Exception) -> str:
     """Create a deterministic, data-free reference for support conversations."""
-    payload = f"v103|{phase}|{file_key}|{type(exc).__name__}|{exc}"
+    payload = f"v104|{phase}|{file_key}|{type(exc).__name__}|{exc}"
     return "TMP-" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:10].upper()
 
 
@@ -94,6 +95,22 @@ def _show_safe_error(phase: str, file_key: str, exc: Exception) -> None:
     st.caption(
         f"Support code: `{support_code}` - share this code with the Templyfier owner."
     )
+    diagnostic = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    with st.expander("Support diagnostic"):
+        st.caption(
+            "Download this file and send it only to the Templyfier owner. "
+            "It may contain source file or worksheet names."
+        )
+        st.download_button(
+            "Download diagnostic",
+            data=(
+                f"Support code: {support_code}\nPhase: {phase}\n"
+                f"Exception: {type(exc).__name__}\n\n{diagnostic}"
+            ),
+            file_name=f"Templyfier_{support_code}_diagnostic.txt",
+            mime="text/plain",
+            key=f"diagnostic_{support_code}_{phase}",
+        )
 
 
 def _step(stage, title, hint):
@@ -725,31 +742,15 @@ def render_smart_mode():
         automatic_exports=test_type == "Monadic" and benchmark_sheet_mode in {"auto_exports","auto_columns"},
         paired_mappings=paired_mappings,
     )
-    if audit['ready']:
-        if test_type=='Monadic' and benchmark_sheet_mode in {'auto_exports','auto_columns'}:
-            split_count=len({_normal(name) for name in split_table["Nom de l'onglet"].astype(str) if str(name).strip()})
-            expected=split_count*len(benchmark_positions)
-            matched = sum(
-                _normal(
-                    row.get("Contr�le")
-                    or row.get("Check")
-                    or row.get("Status")
-                    or ""
-                ) in {"pret", "ready"}
-                for row in audit["rows"]
-            )
-            plan_summary = f'{split_count} splits x {len(benchmark_positions)} benchmarks: {matched}/{expected} readings matched'
-        else:
-            plan_summary = f'{len(audit["rows"])} result sources checked'
-        st.caption("Source check - " + plan_summary)
-    else:
+    if not audit['ready']:
         st.error(f'Input plan needs attention - {len(audit["blockers"])} issue(s) must be corrected before generation.')
-    with st.expander("Technical source checks", expanded=not audit["ready"]):
-        st.dataframe(pd.DataFrame(audit["rows"]), hide_index=True, width="stretch")
-        if audit["blockers"]:
-            st.error("\n\n".join(f" {message}" for message in audit["blockers"]))
-        elif audit["warnings"]:
-            st.warning("\n\n".join(f" {message}" for message in audit["warnings"]))
+    if audit["blockers"] or audit["warnings"]:
+        with st.expander("Files to check", expanded=bool(audit["blockers"])):
+            st.dataframe(pd.DataFrame(audit["rows"]), hide_index=True, width="stretch")
+            if audit["blockers"]:
+                st.error("\n\n".join(f"- {message}" for message in audit["blockers"]))
+            elif audit["warnings"]:
+                st.warning("\n\n".join(f"- {message}" for message in audit["warnings"]))
 
     summary_scope = "total" if include_kpi_summary else "none"
     summary_metric_strategy = "priority"
@@ -905,7 +906,7 @@ def render_smart_mode():
         next_steps=[]
         if pending_metrics:next_steps.append('In Review questions, confirm or cancel the pending metric change.')
         if not question_audit['ready'] or not empty_standard_recipes.empty:next_steps.append('In Review questions, correct the marked rows and keep at least one source metric for each retained question.')
-        if not audit['ready'] and test_type != 'Paired':next_steps.append('In Advanced options, open File and comparison checks and correct the reported issue.')
+        if not audit['ready'] and test_type != 'Paired':next_steps.append('Open Files to check above and correct the reported issue.')
         if not names.ne('').all() or (duplicates and not auto_consolidation):next_steps.append('In Confirm setup, provide a unique name for every split.')
         if not product_headers_ready:next_steps.append('In Advanced options, give every product a display name.')
         if test_type=='Monadic' and (not products_match or benchmark_count==0 or not all(benchmark_short_labels)):next_steps.append('In Advanced options, check the product plan, select a benchmark and name each reading.')
