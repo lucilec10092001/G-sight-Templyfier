@@ -677,7 +677,1969 @@ def cmr_benchmark_positions(matches: Sequence[CmrProductMatch]) -> tuple[int, ..
     return tuple(
         index
         for index, match in enumerate(matches)
-        if match.score >= 80 and benchmark_words.search(_ncreeners: bool,
+        if match.score >= 80 and benchmark_words.search(_normal(match.formula_type))
+    )
+
+
+def _stage_name(sheet) -> str:
+    # G-Sight usually writes Stage in A1, but translated exports and workbook
+    # conversions can move it within the header. Prefer an explicit label and
+    # keep the historical A1 fallback for older exports.
+    for row in range(1, min(sheet.max_row, 20) + 1):
+        for col in range(1, min(sheet.max_column, 20) + 1):
+            value = _text(sheet.cell(row, col).value).strip()
+            match = re.match(r"^(?:Stage|Stade)\s*:\s*(.+)$", value, flags=re.I)
+            if match and match.group(1).strip():
+                return match.group(1).strip()
+    value = _text(sheet.cell(1, 1).value).strip()
+    return value or "Non pr�cis�"
+
+
+def _embedded_data_sheets(workbook):
+    sheets = []
+    for sheet in workbook.worksheets:
+        # G-Sight names these sheets either "Table_1 2_TAILED" or with the
+        # evaluated stage, such as "NEAT 2_TAILED".  The 1_TAILED and DELTA
+        # companion sheets contain the same study data under a different
+        # significance view and must never be interpreted as extra splits.
+        if re.search(r"(?:^|[ _-])2[ _-]*TAILED$", sheet.title, flags=re.I):
+            try:
+                detect_layout(sheet)
+                sheets.append(sheet)
+            except TemplyfierError:
+                pass
+    if sheets:
+        # A G-Sight workbook can contain the same TOTAL 2-tailed table twice.
+        # Keep the first exact value copy so the duplicate cannot become a
+        # second split, while preserving genuinely different filtered tables.
+        unique = []
+        fingerprints = set()
+        for sheet in sheets:
+            fingerprint = tuple(
+                tuple(cell.value for cell in row)
+                for row in sheet.iter_rows()
+            )
+            if fingerprint in fingerprints:
+                continue
+            fingerprints.add(fingerprint)
+            unique.append(sheet)
+        return unique
+    for sheet in workbook.worksheets:
+        if any(word in sheet.title.casefold() for word in ("legend", "screener")):
+            continue
+        try:
+            detect_layout(sheet)
+            sheets.append(sheet)
+        except TemplyfierError:
+            pass
+    return sheets or [detect_data_sheet(workbook)]
+
+
+def _active_layout(sheet, layout):
+    """CLT exports often contain paired N/W columns; only one is active per stage."""
+    active = tuple(
+        col for col in layout.product_cols
+        if (_count_from_header(sheet.cell(layout.sample_row, col).value) or 0) > 0
+    )
+    if len(active) >= 2 and len(active) < len(layout.product_cols):
+        return type(layout)(
+            layout.header_row,
+            layout.metric_col,
+            active,
+            sample_row_index=layout.sample_row,
+            product_name_row_index=layout.product_name_row,
+            product_header_row_index=layout.product_header_row,
+        )
+    return layout
+
+
+def _split_label(sheet) -> str:
+    # Most G-Sight exports use A2, but layouts, translations and Excel
+    # conversions can move the filter summary within the header area.
+    prefix = r"(?:Search|Recherche|Filter(?:s)?|Filtre(?:s)?)"
+    values=[]
+    for row in range(1,min(sheet.max_row,20)+1):
+        for col in range(1,min(sheet.max_column,20)+1):
+            value=_text(sheet.cell(row,col).value).strip()
+            if re.match(rf"^{prefix}\s*:",value,flags=re.I):
+                values.append(value)
+    if not values:return "TOTAL"
+    stripped = [re.sub(rf"^{prefix}\s*:\s*", "", value, flags=re.I).strip() for value in values]
+    stripped = list(dict.fromkeys(value for value in stripped if value))
+    if not stripped:return "TOTAL"
+    if len(stripped) == 1:return stripped[0]
+    # A converted workbook can repeat a short filter beside its complete
+    # summary. Keep the complete summary. If the filters are genuinely
+    # separate, combine them so no split dimension is silently discarded.
+    longest = max(stripped, key=len)
+    if all(_normal(value) in _normal(longest) for value in stripped):
+        return longest
+    return "; Search: ".join(stripped)
+
+
+def _has_split_filter(sheet) -> bool:
+    prefix = r"(?:Search|Recherche|Filter(?:s)?|Filtre(?:s)?)"
+    return any(re.match(rf"^{prefix}\s*:",_text(sheet.cell(row,col).value).strip(),flags=re.I)
+        for row in range(1,min(sheet.max_row,20)+1)
+        for col in range(1,min(sheet.max_column,20)+1))
+
+
+def _friendly_split_label(sheet) -> str:
+    raw_search = _split_label(sheet)
+    search = _normal(raw_search)
+    # Native G-Sight split syntax: the value after the final colon is the
+    # split name. Example: "Search: S-15-Fabcon brand MO: Lenor" -> LENOR.
+    # Keep the older Yumos wording for backward-compatible saved projects.
+    fabcon_value = re.search(r"\bfabcon\s+brand\s+mo\s*:\s*([^,;]+)", raw_search, flags=re.I)
+    if fabcon_value:
+        value = re.sub(r"\s+", " ", fabcon_value.group(1)).strip()
+        if value:
+            return "YUMOS MO" if _normal(value) in {"yumos", "yumos mo"} else value.upper()
+    if "sample split" in search and "boost" in search and any(
+        word in search for word in ("orkide", "orchid")
+    ):
+        return "YUMOS ORKIDE MO"
+    if "city" in search and "istanbul" in search:
+        return "ISTANBUL"
+    if "city" in search and "ankara" in search:
+        return "ANKARA"
+    if "fabcon brand mo" in search and "yumos" in search:
+        return "YUMOS MO"
+    if "fabcon brand mo" in search:
+        return "OTHER BRANDS"
+    if "sample type" in search and "boost" in search and "ariel loyalist" not in search.split("boost", 1)[0]:
+        return "ARIEL LOYALISTS MO SUFFERERS"
+    if "sample type" in search and "ariel loyalist" in search and "boost" in search:
+        return "MALODOR SUFFERERS"
+    if "sample type" in search and "ariel loyalist" in search:
+        if "malodor recode: no" in search or "malodor recode no" in search:
+            return "ARIEL LOYALISTS - NO MALODOR"
+        return "ARIEL LOYALISTS"
+    if "rep or boost: boost" in search or "rep or boost boost" in search:
+        return "BOOST"
+    if ("rep or boost: rep" in search or "rep or boost rep" in search) and ", search:" not in search:
+        return "TOTAL"
+    if "brand fs mo: comfort" in search or "brand fs mo comfort" in search:
+        return "COMFORT MO"
+    if "brand fs mo:" in search or "brand fs mo" in search:
+        return "OTHER BRANDS MO"
+    mo_brands = re.search(r"\bmo brands?\s*:?\s*(.+)", search)
+    if mo_brands:
+        brands = [part.strip() for part in mo_brands.group(1).split(",") if part.strip()]
+        brand_set = set(brands)
+        retailer_brands = {
+            "aldi almat", "asda", "lidl formil", "marks & spencer (m&s)",
+            "morrisons", "sainsbury's", "tesco", "waitrose & partners",
+        }
+        if brand_set and brand_set.issubset(retailer_brands):
+            return "RETAILER BRANDS MO"
+        if len(brands) <= 2 and brands[0] in {"surf", "bold", "ariel"}:
+            return f"{brands[0].upper()} MO"
+        other = any(value.startswith("other brand") for value in brands)
+        if other and len(brands) >= 20:
+            return "OTHER BRANDS MO"
+        if other:
+            return "NATIONAL BRANDS MO"
+        return f"{brands[0].upper()} MO"
+    mo_brand = re.search(r"\bmo brand\s*:?\s*([^,]+)", search)
+    if mo_brand:
+        return f"{mo_brand.group(1).strip().upper()} MO"
+    if "colour mo: white" in search or "colour mo white" in search:
+        return "WHITE MO"
+    if "colour mo:" in search or "colour mo" in search:
+        return "OTHER COLORS"
+    if (
+        "age" in search
+        and not any(token in search for token in ("under 18", "moins de 18"))
+        and (
+            "18 40" in search
+            or ("18 30" in search and "31 40" in search)
+        )
+    ):
+        return "18-40 YO"
+    if "age" in search and any(token in search for token in ("41 50", "51 64", "41 64")):
+        return "41+ YO" if "65 years" in search else "41-64 YO"
+    if "age" in search and "65 years" in search:
+        return "41-65 YO"
+    if "sample split" in search and re.search(r"\bmain\b", search):
+        return "TOTAL"
+    return "TOTAL"
+
+
+def _generic_split_label(sheet) -> str:
+    """Extract arbitrary G-Sight search values when no known CMI split matches."""
+    raw = _split_label(sheet)
+    if not raw or _normal(raw) == "total":
+        return "TOTAL"
+    parts = re.split(r"(?:,|;|\r?\n)\s*(?:Search|Recherche|Filter(?:s)?|Filtre(?:s)?)\s*:\s*", raw, flags=re.I)
+    values = []
+    for part in parts:
+        if ":" not in part:
+            continue
+        # Native G-Sight writes the user-facing split after the final colon:
+        # "S-03-Age: 18-30, 31-40" -> "18-30, 31-40".
+        value = part.rsplit(":", 1)[1].strip()
+        value = re.sub(r"^\d+\s*[-.)]\s*", "", value).strip()
+        if not value or _normal(value) in {"all", "total", "total population"}:
+            continue
+        clean = re.sub(r"\s+", " ", value).upper()
+        if clean not in values:
+            values.append(clean)
+    return " � ".join(values) or "TOTAL"
+
+
+def _split_detection(sheet, filename: str) -> tuple[str,str]:
+    """Return a conservative label and visible confidence for CMI review."""
+    has_filter=_has_split_filter(sheet)
+    raw=_split_label(sheet)
+    detected=_detected_split_label(sheet)
+    normalized=_normal(raw)
+    explicit_total=(normalized in {'','total','all','total population'}
+        or ('sample split' in normalized and bool(re.search(r'\bmain\b',normalized)))
+        or 'rep or boost rep' in normalized)
+    if detected!='TOTAL':
+        return detected,'High confidence'
+    if explicit_total:
+        return 'TOTAL','High confidence'
+    if not has_filter and _normal(Path(filename).stem) in {'total','total sample'}:
+        return 'TOTAL','High confidence'
+    # A non-empty filter that cannot be parsed must never silently become TOTAL.
+    return _default_split_name(filename),'Review recommended'
+
+
+def _detected_split_label(sheet) -> str:
+    friendly = _friendly_split_label(sheet)
+    search = _normal(_split_label(sheet))
+    if friendly == "TOTAL":
+        is_main = "sample split" in search and re.search(r"\bmain\b", search)
+        is_plain_rep = (
+            ("rep or boost: rep" in search or "rep or boost rep" in search)
+            and (", search:" not in search or bool(re.search(r", search: [^:]+:\s*$", search)))
+        )
+        if is_main or is_plain_rep:
+            return "TOTAL"
+    return friendly if friendly != "TOTAL" else _generic_split_label(sheet)
+
+
+def _leading_product_code(value) -> str:
+    """Return a compact G-Sight product code from a composite header.
+
+    Some exports put the technical code in the sample row (``155 - O1P``),
+    while others start the product name with it (``O1P 25% VE00971346``).
+    The latter is common in CLT files and must still be linkable to the
+    repeated comparison reference shown on the G-Sight header row.
+    """
+    match = re.match(r"^\s*([A-Z0-9]{2,12})(?=\s|$)", _text(value), flags=re.I)
+    if not match:
+        return ""
+    code = match.group(1).upper()
+    return code if any(char.isalpha() for char in code) and any(char.isdigit() for char in code) else ""
+
+
+def _comparison_codes(sheet, layout) -> tuple[str, ...]:
+    product_codes = set()
+    for col in layout.product_cols:
+        match = re.search(r"-\s*([A-Z0-9]+)\s*$", _text(sheet.cell(layout.sample_row, col).value), flags=re.I)
+        if match:
+            product_codes.add(match.group(1).upper())
+        header_code = _leading_product_code(sheet.cell(layout.product_name_row, col).value)
+        if header_code:
+            product_codes.add(header_code)
+    found = []
+    for col in range(layout.metric_col + 1, sheet.max_column + 1):
+        value = _text(sheet.cell(layout.product_header_row, col).value).upper()
+        if value in product_codes and value not in found:
+            found.append(value)
+    return tuple(found)
+
+
+def _suggest_test_type(inputs: Sequence["SmartInputInfo"]) -> str:
+    if any(
+        "paired" in _normal(item.filename) or "paired" in _normal(item.stage)
+        for item in inputs
+    ):
+        return "Paired (� confirmer)"
+    if any(item.comparison_codes for item in inputs):
+        return "Monadic"
+    product_counts = {len(item.product_keys) for item in inputs if item.product_keys}
+    if product_counts and all(count % 2 == 0 for count in product_counts):
+        return "Paired (� confirmer)"
+    return "Monadic (� confirmer)"
+
+
+def _embedded_sheets_are_consumer_splits(filename: str, sheets: Sequence) -> bool:
+    """Recognise one-workbook Paired exports where each result sheet is a split."""
+    if len(sheets) < 2:
+        return False
+    if re.search(r"\ball\s+splits?\b|\btous?\s+les\s+splits?\b", _normal(filename)):
+        return True
+    meaningful_stages = {
+        _normal(_stage_name(sheet))
+        for sheet in sheets
+        if _normal(_stage_name(sheet)) not in {"", "none", "not specified", "non precise"}
+    }
+    # Several 2-tailed tables with one common stage but different Search
+    # filters are embedded consumer splits. Companion 1-tailed and DELTA views
+    # have already been excluded by `_embedded_data_sheets`.
+    raw_split_labels = {
+        _normal(_split_label(sheet)) for sheet in sheets if _has_split_filter(sheet)
+    }
+    if len(meaningful_stages) <= 1 and raw_split_labels:
+        return True
+    if len(meaningful_stages) > 1:
+        return False
+    generic = re.compile(r"^(?:table|sheet|feuil|data|results?|resultats?)[\s_-]*\d*$", re.I)
+    titles = [_text(sheet.title) for sheet in sheets]
+    return len(set(map(_normal, titles))) == len(titles) and all(
+        title and not generic.fullmatch(_normal(title)) for title in titles
+    )
+
+
+def _suggest_benchmark_count(inputs: Sequence["SmartInputInfo"]) -> int:
+    result_inputs = [item for item in inputs if item.role == "R�sultats"] or list(inputs)
+    explicit = max((len(item.comparison_codes) for item in result_inputs), default=1) or 1
+    names = result_inputs[0].product_names if result_inputs else ()
+    # A frequent G-Sight plan starts with two named market controls followed by
+    # coded prototypes. Treat this as a suggestion only; the CMI still confirms it.
+    if len(names) >= 4:
+        coded = [bool(re.search(r"\b(?:MIX|TEST|PROTO)[-_ ]?\d", name, flags=re.I)) for name in names]
+        if not coded[0] and not coded[1] and sum(coded[2:]) >= max(2, len(coded[2:]) - 1):
+            explicit = max(explicit, 2)
+    return max(1, explicit)
+
+
+def _product_keys(sheet, layout) -> tuple[str, ...]:
+    keys = []
+    paired_stage = _normal(_stage_name(sheet)) in {"neat", "damp wet", "wet"}
+    comparison_values = {
+        _text(sheet.cell(layout.product_header_row, col).value).upper()
+        for col in range(layout.metric_col + 1, sheet.max_column + 1)
+    }
+    header_codes = [
+        _leading_product_code(sheet.cell(layout.product_name_row, col).value)
+        for col in layout.product_cols
+    ]
+    composite_code_layout = any(code and code in comparison_values for code in header_codes)
+    for position, col in enumerate(layout.product_cols):
+        sample = _text(sheet.cell(layout.sample_row, col).value)
+        match = re.search(r"-\s*([A-Z0-9]+)\s*$", sample, flags=re.I)
+        if match:
+            code = match.group(1).upper()
+            if paired_stage and code.endswith(("N", "W")):
+                code = code[:-1]
+            keys.append(code)
+        elif composite_code_layout and header_codes[position]:
+            keys.append(header_codes[position])
+        else:
+            keys.append(_normal(_product_names(sheet, layout)[position]))
+    return tuple(keys)
+
+
+def _study_format(filenames: Sequence[str], stages: Sequence[str], max_rows: int = 0) -> str:
+    haystack = " ".join(filenames).casefold()
+    if "clt" in haystack:
+        return "CLT"
+    if "hut" in haystack or any("in use" in stage.casefold() for stage in stages):
+        return "HUT / in-use"
+    normalized_stages = {_normal(stage) for stage in stages}
+    if normalized_stages and normalized_stages.issubset({"neat", "damp wet", "wet"}):
+        return "CLT"
+    if max_rows >= 700 and normalized_stages.issubset({"none", "use", "non precise"}):
+        return "HUT / in-use"
+    return "� confirmer"
+
+
+from .language import analysis_normal as _analysis_normal
+
+
+def _normal(text: str) -> str:
+    text = unicodedata.normalize("NFKD", _text(text)).encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"\s+", " ", text.casefold().replace("_", " ").replace("-", " ")).strip()
+
+
+def _metric_key(metric: str) -> str:
+    from .language import french_box_key
+    norm = _normal(metric)
+    french_box = french_box_key(norm)
+    if french_box:
+        return french_box
+    if norm in {
+        "mean", "average", "avg", "arithmetic mean", "moyenne",
+        "moyenne arithmetique", "score moyen", "promedio", "media", "mittelwert",
+    }:
+        return "mean"
+    # A numbered answer mentioning 'top', 'bottom', 'haut' or 'bas' is
+    # still an individual answer, never an aggregate box.
+    if re.match(r"^\d+\s", norm):
+        return norm
+    # G-Sight configurations are not consistent in the way aggregate boxes
+    # are named. Normalise frequent compact variants first.
+    compact = re.sub(r"[^a-z0-9]+", "", norm)
+    compact_boxes = {
+        "tb": "top_1", "t1b": "top_1", "topbox": "top_1", "top1box": "top_1",
+        "t2b": "top_2", "top2box": "top_2", "top2boxes": "top_2", "toptwoboxes": "top_2",
+        "t3b": "top_3", "top3box": "top_3", "top3boxes": "top_3", "topthreeboxes": "top_3",
+        "bb": "bottom_1", "b1b": "bottom_1", "bottombox": "bottom_1", "bottom1box": "bottom_1",
+        "b2b": "bottom_2", "bottom2box": "bottom_2", "bottom2boxes": "bottom_2", "bottomtwoboxes": "bottom_2",
+        "b3b": "bottom_3", "bottom3box": "bottom_3", "bottom3boxes": "bottom_3", "bottomthreeboxes": "bottom_3",
+    }
+    if compact in compact_boxes:
+        return compact_boxes[compact]
+    direction = "top" if any(word in norm for word in ("top", "haut", "superieur")) else "bottom" if any(word in norm for word in ("bottom", "bas", "inferieur")) else ""
+    if direction:
+        number = "3" if re.search(r"\b3\b", norm) else "2" if re.search(r"\b2\b", norm) else "1"
+        return f"{direction}_{number}"
+    return norm
+
+
+def _looks_like_code(value: str) -> bool:
+    return bool(re.match(r"^q\s*[-_]?\s*\d+", _text(value), flags=re.I))
+
+
+def _is_maxdiff_question(question_id: str, label: str = "", mapped_kpi: str = "") -> bool:
+    combined = _normal(f"{question_id} | {label} | {mapped_kpi}")
+    return (
+        "max diff" in combined
+        or "maxdiff" in combined
+        or _normal(label) == "favorite"
+        or bool(re.search(r"\bq\s*0?8\s+favorite\b", combined))
+    )
+
+
+def humanize_question(question_id: str, mapped_kpi: str = "") -> str:
+    """Remove only the technical Q-number prefix and preserve the questionnaire wording."""
+    label = re.sub(
+        r"^Q\s*[-_]?\s*\d+[A-Z]?(?:\s*[-_]\s*\d+[A-Z]?)*\s*[-_:=]?\s*",
+        "",
+        _text(question_id),
+        flags=re.I,
+    )
+    label = re.sub(r"_+", " ", label)
+    label = re.sub(r"\s+", " ", label).strip(" -_:=")
+    normalized_label = _normal(label)
+    if normalized_label in {"f opo", "ofo", "ofl", "ofr", "overall fragrance rating"}:
+        return "Overall Fragrance Opinion"
+    if normalized_label in {"opo", "overall product liking"}:
+        return "Overall Product Opinion"
+    if normalized_label == "pi":
+        return "Purchase Intent"
+    if normalized_label == "purchase":
+        return "Purchase Intent"
+    if normalized_label == "expectations":
+        return "Evaluation vs. Expectations"
+    if normalized_label in {"softness", "overall softness"}:
+        return "Overall Softness Opinion"
+    label = re.sub(r"^F(?:\s*[-_]\s*\d+)?\s*[-_:]\s*", "", label, flags=re.I)
+    label = re.sub(
+        r"^(?:Statements?|Product benefit|Fragrance statement|Opinion by stage|Strength by stage|Perception Mapping)\s*[-_:]\s*",
+        "",
+        label,
+        flags=re.I,
+    )
+    if label:
+        return label
+    if mapped_kpi and not _looks_like_code(mapped_kpi):
+        return re.sub(r"\s+", " ", mapped_kpi.replace("_", " ")).strip()
+    return _text(question_id)
+
+
+def _color_code(question_id: str, label: str = "") -> str:
+    for value in (question_id, label):
+        match = re.search(r"(?:colour|color)[\s_-]*([A-Z]\d+)\s*$", value, flags=re.I)
+        if match:
+            return match.group(1).upper()
+    return ""
+
+
+def _suggest_section(question_id: str, label: str, question_type: str, mapped_kpi: str = "") -> str:
+    combined = _analysis_normal(f"{question_id} | {label} | {mapped_kpi}")
+    qid = _analysis_normal(question_id)
+    if _is_maxdiff_question(question_id, label, mapped_kpi):
+        return "HORS TOPLINES"
+    if question_type == "Delete" and re.search(r"\b(?:other\s*\(?\s*precise|autre\s+preciser)\b", combined):
+        return "OPEN ENDS - HORS TOPLINES"
+    if _color_code(question_id, label):
+        return "FRAGRANCE CHARACTERISTICS"
+    if question_type == "Attribute" and re.search(r"\bbenefits?\b", qid):
+        return "PRODUCT BENEFITS"
+    # Attribute batteries must be interpreted as a whole. An item called
+    # "Long-lasting" inside "Olfactive attributes" is a perception item, not
+    # a standalone fragrance-benefit KPI.
+    if question_type == "Attribute" and any(word in combined for word in (
+        "olfactive attribute", "olfactory attribute", "freshness type", "type of freshness",
+        "consumer perception", "perception mapping", "characteristic", "emotion", "feeling", " attributes ",
+    )):
+        return "FRAGRANCE CHARACTERISTICS"
+    if any(word in combined for word in (
+        "quantity used", "dosing", "wash load", "wash temp", "wash cycle", "dry method",
+        "detergent format", "detergent brand", "scent booster used", "scent booster brand",
+        "scent booster variant", "my own laundry", "laundry of my", "usage", "product tested",
+        "per wash", "amount of product", "comparison amount",
+    )) or re.match(r"q\s*34(?:\s|$)", qid):
+        return "USAGE & CONTEXT"
+    if any(word in combined for word in ("emotion", "good mood", "relaxed", "reassur", "comforting")):
+        return "FRAGRANCE CHARACTERISTICS"
+    if "scent experience overall" in combined:
+        return "PRODUCT EVALUATION"
+    if "expectation" in combined:
+        return "PRODUCT EVALUATION"
+    if _analysis_normal(label) in {"softness", "overall softness", "overall softness opinion"}:
+        return "PRODUCT EVALUATION"
+    if "fit to brand" in combined:
+        return "PRODUCT EVALUATION"
+    if any(word in combined for word in (
+        "bottle suitability", "variant suitability", "universe suitability", "comfort pure suitability",
+    )):
+        return "FRAGRANCE BENEFITS"
+    if "fit to" in combined or re.search(r"\bfit\b", combined):
+        return "FIT"
+    if re.match(r"q\s*11(?:\s|$)", qid) and any(
+        word in combined for word in ("odor", "odour", "smell", "fresh", "hygien")
+    ):
+        return "PRODUCT BENEFITS"
+    if re.match(r"q\s*13(?:\s|$)", qid):
+        return "FRAGRANCE BENEFITS"
+    if re.match(r"q\s*14(?:\s+[a-z])?\s+\d+(?:\s|$)", qid) and any(
+        word in combined for word in ("opinion by stage", "opening", "machine", "drying", "wearing", "wardrobe", "rubbing")
+    ):
+        return "FRAGRANCE JOURNEY - LIKING"
+    if any(word in combined for word in ("overall fragrance", "overall scent", "f opo", "ofo", "ofl", "ofr")):
+        return "FRAGRANCE EVALUATION"
+    if re.match(r"q\s*18\s+f(?:\s|$)", qid) and "perception mapping" in combined:
+        return "FRAGRANCE CHARACTERISTICS"
+    if question_type == "Strength" or any(word in combined for word in ("intensity", "strength", "too weak", "too strong")):
+        if re.match(r"q\s*1[568](?:\s+[a-z])?\s+\d+(?:\s|$)", qid) or any(
+            word in combined for word in ("opening", "machine", "drying", "folding", "wearing", "wardrobe", "storage", "rubbing")
+        ):
+            return "FRAGRANCE JOURNEY - STRENGTH"
+        return "FRAGRANCE STRENGTH"
+    if re.match(r"q\s*18(?:\s|$)", qid) and question_type == "Attribute":
+        return "FRAGRANCE CHARACTERISTICS"
+    if re.match(r"q\s*19(?:\s|$)", qid) or "characteristic" in combined:
+        return "FRAGRANCE CHARACTERISTICS"
+    if re.match(r"q\s*20(?:\s|$)", qid):
+        return "FRAGRANCE CHARACTERISTICS"
+    if any(word in combined for word in ("fragrance benefit", "scent benefit", "long lasting freshness", "long lastingness", "smell great")):
+        return "FRAGRANCE BENEFITS"
+    if combined.strip().endswith("long lasting"):
+        return "FRAGRANCE BENEFITS"
+    if (
+        (re.match(r"q\s*1[45](?:\s+[a-z])?(?:\s+\d+)?(?:\s|$)", qid) and question_type == "Standard")
+        or any(word in combined for word in (
+            "when opening", "opening the bottle", "washing machine", "removing wet clothes",
+            "while drying", "hanging clothes", "folding", "when wearing", "wardrobe",
+        ))
+    ):
+        return "FRAGRANCE JOURNEY - LIKING"
+    if re.match(r"q\s*24\s+f(?:\s|$)", qid) and "comparison to current" in combined:
+        return "FRAGRANCE EVALUATION"
+    if re.match(r"q\s*10(?:\s|$)", qid) and "comparison to current" in combined:
+        return "PRODUCT EVALUATION"
+    if any(word in combined for word in (
+        "product benefit", "cleaning", "stain", "whiteness", "residue", "laundry result", "safe on",
+        "malodor", "malodour", "bad odor", "bad odour", "hygienically clean",
+    )):
+        return "PRODUCT BENEFITS"
+    if re.match(r"q\s*[789](?:\s|$)", qid):
+        return "PRODUCT BENEFITS"
+    if question_type == "Attribute":
+        if any(word in combined for word in (
+            "benefit", "perception", "fresh", "fraich", "parfum", "fragrance", "scent", "odeur", "smell",
+        )):
+            return "FRAGRANCE CHARACTERISTICS"
+        return "ATTRIBUTES"
+    if any(word in combined for word in ("parfum", "fragrance", "scent", "odeur", "smell")):
+        return "FRAGRANCE EVALUATION"
+    return "PRODUCT EVALUATION"
+
+
+def _question_priority(question_id: str, label: str, section: str, first_row: int) -> tuple[int, int]:
+    combined = _analysis_normal(f"{question_id} | {label}")
+    qid = _analysis_normal(question_id)
+    if any(word in combined for word in ("overall fragrance", "overall scent", "f opo", "ofo", "ofr")):
+        rank = 220
+    elif any(word in combined for word in ("overall product opinion", "overall product liking", "opo")):
+        rank = 100
+    elif re.match(r"q\s*8(?:\s|$)", qid) and "expectation" in combined:
+        rank = 105
+    elif "fit to brand" in combined:
+        rank = 108
+    elif section == "PRODUCT EVALUATION" and any(word in combined for word in ("purchase intent", "purchase", " pi ")):
+        rank = 110
+    elif re.search(r"\brcr\b", combined):
+        rank = 120
+    elif section == "PRODUCT EVALUATION" and "expectation" in combined:
+        rank = 125
+    elif "scent experience overall" in combined:
+        rank = 130
+    elif section == "PRODUCT EVALUATION" and any(word in combined for word in ("new different", "new & different")):
+        rank = 135
+    elif section == "FRAGRANCE STRENGTH" and re.match(r"q\s*16(?:\s|$)", qid) and "intensity" in combined:
+        # Common Paired HUT flow: OFO  liking touchpoint  overall intensity  strength touchpoints.
+        rank = 245
+    elif section == "FIT" and re.search(r"\b(?:neat|wet|damp)\b", combined):
+        rank = 430
+    elif section == "FRAGRANCE CHARACTERISTICS":
+        if _color_code(question_id, label):
+            rank = 380
+        elif re.match(r"q\s*18(?:\s|$)", _analysis_normal(question_id)) or "olfactive" in combined:
+            rank = 320
+        elif re.match(r"q\s*19(?:\s|$)", _analysis_normal(question_id)) or any(
+            word in combined for word in ("characteristic", "perception")
+        ):
+            rank = 340
+        elif re.match(r"q\s*20(?:\s|$)", _analysis_normal(question_id)) or "emotion" in combined:
+            rank = 350
+        elif any(word in combined for word in ("freshness type", "type of freshness")):
+            rank = 315
+        else:
+            rank = 360
+    else:
+        ranks = {
+            "PRODUCT EVALUATION": 140,
+            "PRODUCT BENEFITS": 180,
+            "FRAGRANCE EVALUATION": 225,
+            "FRAGRANCE STRENGTH": 230,
+            "FRAGRANCE JOURNEY - LIKING": 240,
+            "FRAGRANCE JOURNEY - STRENGTH": 250,
+            "FRAGRANCE BENEFITS": 260,
+            "FIT": 270,
+            "FRAGRANCE CHARACTERISTICS": 330,
+            "ATTRIBUTES": 360,
+            "USAGE & CONTEXT": 420,
+        }
+        rank = ranks.get(section, 500)
+    return rank, first_row
+
+
+def _study_question_priority(
+    study_format: str,
+    question_id: str,
+    label: str,
+    section: str,
+    first_row: int,
+    study_stages: Sequence[str] = (),
+) -> tuple[int, int]:
+    """Adapt the proposed narrative to the study design without hiding questions."""
+    if study_format != "CLT":
+        return _question_priority(question_id, label, section, first_row)
+
+    combined = _analysis_normal(f"{question_id} | {label}")
+    normalized_stages = {_normal(value) for value in study_stages if _normal(value)}
+    wet_only = bool(normalized_stages) and normalized_stages.issubset({"wet", "damp wet"})
+    stage = (
+        "wet" if re.search(r"\b(?:damp wet|wet)\b", combined)
+        else "neat" if re.search(r"\bneat\b", combined)
+        else "wet" if wet_only
+        else ""
+    )
+    if stage == "wet":
+        if wet_only:
+            if any(word in combined for word in ("overall fragrance", "overall scent", "f opo", "ofo", "ofl", "ofr")):
+                return 100, first_row
+            if section == "FRAGRANCE STRENGTH":
+                return 110, first_row
+            return 120, first_row
+        if section == "FRAGRANCE CHARACTERISTICS":
+            if "olfactive attribute" in combined or "olfactory attribute" in combined:
+                return 130, first_row
+            if "freshness type" in combined or "type of freshness" in combined:
+                return 131, first_row
+            if _color_code(question_id, label):
+                return 132, first_row
+        ranks = {
+            "FRAGRANCE EVALUATION": 100,
+            "FRAGRANCE STRENGTH": 110,
+            "PRODUCT BENEFITS": 120,
+            "FRAGRANCE BENEFITS": 125,
+            "FRAGRANCE CHARACTERISTICS": 130,
+            "FIT": 140,
+        }
+        return ranks.get(section, 145), first_row
+    if stage == "neat":
+        ranks = {
+            "FRAGRANCE EVALUATION": 150,
+            "FRAGRANCE STRENGTH": 160,
+            "FRAGRANCE CHARACTERISTICS": 170,
+            "FIT": 180,
+        }
+        return ranks.get(section, 175), first_row
+    # Some CLT exports carry the stage only in A1 and have shortened Windows
+    # filenames. In that case, use the validated scent-test storyline.
+    if any(word in combined for word in ("overall product", "purchase intent", " rcr", " opo")):
+        return 50, first_row
+    if section == "FRAGRANCE EVALUATION" and any(
+        word in combined for word in ("overall fragrance", "overall scent", "ofo", "ofr")
+    ):
+        return 100, first_row
+    if section == "FRAGRANCE STRENGTH":
+        return 110, first_row
+    if section in {"PRODUCT EVALUATION", "FRAGRANCE EVALUATION"}:
+        return 120, first_row
+    if section in {"PRODUCT BENEFITS", "FRAGRANCE BENEFITS"}:
+        return 130, first_row
+    if section == "FRAGRANCE CHARACTERISTICS":
+        if "freshness type" in combined or "type of freshness" in combined:
+            return 140, first_row
+        return 150, first_row
+    return _question_priority(question_id, label, section, first_row)
+
+
+def _summary_label(label: str) -> str:
+    """Create a short presentation label while keeping it editable in the UI."""
+    clean = _text(label)
+    normalized = _normal(clean)
+    replacements = {
+        "overall product opinion": "Overall Opinion",
+        "overall product liking": "Overall Opinion",
+        "overall fragrance opinion": "Fragrance Opinion",
+        "comparison with expectations": "Better vs. Expectations",
+        "evaluation vs expectations": "Better vs. Expectations",
+        "purchase intent": "Purchase Intent",
+        "fit to brand": "Fit to Brand",
+    }
+    if normalized in replacements:
+        return replacements[normalized]
+    contains_replacements = (
+        (("high quality",), "High Quality"),
+        (("cleaning performance", "cleaning efficacy"), "Cleaning Performance"),
+        (("bad smell", "bad odor", "bad odour", "malodor", "malodour"), "Effective vs. Bad Smells"),
+        (("long lasting freshness and fragrance",), "Long-lasting Freshness"),
+        (("long lasting fragrance", "long lastingness"), "Long-lasting Fragrance"),
+        (("fresh for longer",), "Freshness Longevity"),
+        (("freshness i notice when wearing",), "Freshness When Worn"),
+        (("fragrance that i like",), "Fragrance Liking"),
+        (("stands out",), "Distinctive Fragrance"),
+        (("room smelling great",), "Room Fragrance"),
+        (("keeps clothes soft", "softness"), "Softness"),
+    )
+    for terms, replacement in contains_replacements:
+        if any(term in normalized for term in terms):
+            return replacement
+    clean = re.sub(r"^(?:This product|This fragrance|This smell)\s+", "", clean, flags=re.I)
+    clean = re.sub(r"^(?:is|has|gives|leaves|keeps)\s+", "", clean, flags=re.I)
+    return clean[:52].strip() or _text(label)
+
+
+def _summary_score(proposal: QuestionProposal) -> int:
+    """Rank decision-making KPIs; low-level batteries and technical items stay opt-in."""
+    if not proposal.keep or proposal.question_type in {"Delete", "Strength"}:
+        return -1
+    if proposal.section in {
+        "USAGE & CONTEXT",
+        "FRAGRANCE JOURNEY - LIKING",
+        "FRAGRANCE JOURNEY - STRENGTH",
+        "FRAGRANCE STRENGTH",
+        "FRAGRANCE CHARACTERISTICS",
+        "ATTRIBUTES",
+    }:
+        return -1
+    if proposal.question_type == "Attribute":
+        return -1
+    combined = _analysis_normal(f"{proposal.question_id} | {proposal.display_label} | {proposal.mapped_kpi}")
+    priorities = (
+        (1000, ("overall product opinion", "overall product liking", " opo")),
+        (980, ("purchase intent", " pi")),
+        (965, ("expectation",)),
+        (950, ("overall satisfaction", "scent experience overall")),
+        (940, ("rcr", "fit to brand")),
+        (925, ("cleaning performance", "cleaning efficacy", "stain removal")),
+        (915, ("overall fragrance", "overall scent", "f opo", "ofo", "ofr")),
+        (905, ("long lasting fragrance", "long lastingness", "long lasting freshness")),
+        (895, ("bad smell", "bad odor", "bad odour", "malodor", "malodour")),
+        (885, ("high quality", "quality product")),
+        (875, ("fresh for longer", "freshness")),
+        (865, ("softness", "keeps clothes soft", "soft clothes")),
+        (855, ("stands out", "new and different", "new different")),
+        (845, ("smelling great", "fragrance that i like")),
+    )
+    for score, terms in priorities:
+        if any(term in combined for term in terms):
+            return score
+    section_scores = {
+        "PRODUCT EVALUATION": 800,
+        "PRODUCT BENEFITS": 700,
+        "FRAGRANCE EVALUATION": 650,
+        "FRAGRANCE BENEFITS": 600,
+        "FIT": 550,
+    }
+    return section_scores.get(proposal.section, -1)
+
+
+def _suggest_question_splits(
+    question_id: str,
+    label: str,
+    split_names: Sequence[str],
+) -> tuple[str, ...]:
+    """Suggest a restriction only when the wording explicitly targets a split.
+
+    A plain word overlap is unsafe: a study may contain a ``YELLOW`` split and
+    a business KPI called ``Yellow fit`` that applies to the full sample.  The
+    split name therefore needs a nearby audience/comparison cue such as
+    ``with``, ``among``, ``users of`` or ``only`` before we pre-fill a filter.
+    """
+    combined = _normal(f"{question_id} {label}")
+    matches: list[tuple[int, str]] = []
+    for split_name in split_names:
+        split_key = _normal(split_name)
+        if split_key == "total":
+            continue
+        meaningful = re.sub(r"\b(?:mo|yo|years?|old)\b", " ", split_key)
+        meaningful = re.sub(r"\s+", " ", meaningful).strip()
+        if len(meaningful) < 5:
+            continue
+        split_pattern = re.escape(meaningful).replace(r"\ ", r"\s+")
+        before = (
+            r"(?:among|for|within|with|versus|vs|by|chez|parmi|pour|avec|contre|"
+            r"users?\s+of|owners?\s+of|buyers?\s+of|utilisateurs?\s+de)\s+"
+            r"(?:the\s+|les?\s+)?"
+        )
+        after = (
+            r"\s+(?:users?|owners?|buyers?|respondents?|only|segment|group|sample|"
+            r"utilisateurs?|acheteurs?|repondants?|uniquement|segment|groupe|echantillon)\b"
+        )
+        explicit_reference = bool(
+            re.search(rf"\b{before}{split_pattern}\b", combined)
+            or re.search(rf"\b{split_pattern}{after}", combined)
+        )
+        if explicit_reference:
+            matches.append((len(meaningful), split_name))
+    if not matches:
+        return ()
+    longest = max(length for length, _ in matches)
+    return tuple(split_name for length, split_name in matches if length == longest)
+
+
+def _attribute_display_labels(
+    question_id: str,
+    label: str,
+    question_type: str,
+    section: str,
+) -> tuple[str, str]:
+    color_code = _color_code(question_id, label)
+    if color_code:
+        return "Color", color_code
+    if question_type != "Attribute" or section not in {"FRAGRANCE CHARACTERISTICS", "PRODUCT BENEFITS"}:
+        return label, ""
+    qid = _normal(question_id)
+    battery_source = re.sub(r"^Q\s*[-_]?\s*\d+[A-Z]?(?:\s*[-_]\s*\d+[A-Z]?)*\s*[-_:=]?\s*", "", question_id, flags=re.I)
+    battery_patterns = (
+        (r"(?:olfactive|olfactory)\s+attributes?\s*[-_:]\s*(.+)$", "Olfactive Attributes"),
+        (r"(?:freshness\s+type|type\s+of\s+freshness)\s*[-_:]\s*(.+)$", "Type of Freshness"),
+        (r"(?:^|[-_:])benefits?\s*[-_:]\s*(.+)$", "Benefits"),
+        (r"(?:^|[-_:])attributes?\s*[-_:]\s*(.+)$", "Fragrance Attributes"),
+    )
+    for pattern, display_label in battery_patterns:
+        match = re.search(pattern, battery_source, flags=re.I)
+        if match:
+            return display_label, re.sub(r"\s+", " ", match.group(1)).strip(" -_:=")
+    # Ambiguous isolated attributes must stay independent. Broad automatic
+    # catch-all groups create misleading Excel headers and move the question
+    # name into the Metric column. The CMI can still group them explicitly.
+    if section == "PRODUCT BENEFITS":
+        return label, ""
+    metric_label = re.sub(
+        r"^(?:characters?|characteristics?|consumer perceptions?|emotions?|feelings?)\s*[-_:]?\s*",
+        "",
+        label,
+        flags=re.I,
+    ).strip() or label
+    if re.match(r"q\s*18(?:\s|$)", qid) or "olfactive" in _normal(label):
+        return "Olfactive Space", metric_label
+    if re.match(r"q\s*20(?:\s|$)", qid) or "emotion" in _normal(label):
+        return "Emotions", metric_label
+    if "characteristic" in _normal(f"{question_id} {label}"):
+        return "Fragrance Characteristics", metric_label
+    if re.match(r"q\s*19(?:\s|$)", qid) or "perception" in _normal(label):
+        return "Consumer Perceptions", metric_label
+    return label, ""
+
+
+def _cmi_role(proposal: QuestionProposal) -> str:
+    combined = _normal(f"{proposal.question_id} | {proposal.display_label} | {proposal.mapped_kpi}")
+    if proposal.section == "USAGE & CONTEXT" or proposal.question_type == "Delete":
+        return "Question technique"
+    if proposal.section in {"FRAGRANCE CHARACTERISTICS", "ATTRIBUTES"} or proposal.question_type == "Attribute":
+        return "Liste d'attributs"
+    if proposal.section in {"PRODUCT BENEFITS", "FRAGRANCE BENEFITS"}:
+        return "B�n�fice �valu�"
+    if proposal.section in {"FRAGRANCE JOURNEY - LIKING", "FRAGRANCE JOURNEY - STRENGTH", "FRAGRANCE STRENGTH"}:
+        return "Mesure compl�mentaire"
+    if any(word in combined for word in (
+        "overall product", "overall fragrance", "purchase intent", "expectation", "overall satisfaction",
+        "overall softness", "scent experience overall", "fit to brand", " rcr", " opo", " ofo", " ofr",
+    )):
+        return "Indicateur principal"
+    return "Mesure compl�mentaire"
+
+
+def _cmi_note(proposal: QuestionProposal) -> str:
+    combined = _analysis_normal(f"{proposal.question_id} | {proposal.display_label} | {proposal.mapped_kpi}")
+    if _is_maxdiff_question(proposal.question_id, proposal.display_label, proposal.mapped_kpi):
+        return "Question technique laiss�e de c�t�"
+    if proposal.section == "USAGE & CONTEXT" or proposal.question_type == "Delete":
+        return "Hors toplines propos� ; disponible si le projet l'exige"
+    if any(word in combined for word in (
+        "comparison to current", "comparison with current", "comparison smell", "feeling about new",
+        "feeling about the new",
+        "preference", "perception mapping",
+    )):
+        return "� confirmer selon l'objectif du projet"
+    return ""
+
+
+def _comparative_question(question_id, mapped_kpi, metrics):
+    wording = _analysis_normal(f"{question_id} {mapped_kpi}")
+    if re.search(r"\b(?:pref\w*|most|strongest|which|compar\w*)\b", wording):
+        return True
+    choices = " ".join(_analysis_normal(m) for m in metrics if re.match(r"^\d+\s", _analysis_normal(m)))
+    return bool(re.search(r"\b(?:prefer\w*|usual|habituel\w*|current|actuel\w*)\b", choices))
+
+
+def _preference_question(question_id, mapped_kpi, metrics):
+    """Recognise explicit preference without treating every comparison alike."""
+    wording = _analysis_normal(f"{question_id} {mapped_kpi}")
+    direct = re.search(
+        r"\b(?:pref(?:er(?:red|ence)?)?|favorite|favourite|favori\w*|prefere\w*)\b|"
+        r"\b(?:like|liked)\b.{0,24}\bmost\b|\bwhich\b.{0,24}\bprefer\w*\b|\bthe most\b|\bmost\b",
+        wording,
+    )
+    choices = " ".join(_analysis_normal(metric) for metric in metrics if re.match(r"^\d+\s", _analysis_normal(metric)))
+    return bool(direct or re.search(r"\b(?:most|i prefer|je prefere|preferred)\b", choices))
+
+
+def _bipolar_question(question_id, mapped_kpi, metrics):
+    wording = _analysis_normal(f"{question_id} {mapped_kpi}")
+    if "bipolar" in wording or "bipolaire" in wording or "semantic differential" in wording:
+        return True
+    choices = " ".join(_analysis_normal(m) for m in metrics if re.match(r"^\d+\s", _analysis_normal(m)))
+    opposites = (("feminine", "masculine"), ("feminin", "masculin"),
+                 ("traditional", "modern"), ("natural", "artificial"),
+                 ("warm", "cool"), ("sweet", "fresh"))
+    return any(a in choices and b in choices for a, b in opposites)
+
+
+def _classify(question_id: str, mapped_kpi: str, metrics: Sequence[str]) -> tuple[str, str]:
+    normalized_metrics = [_analysis_normal(metric) for metric in metrics]
+    combined = _analysis_normal(f"{question_id} {mapped_kpi}")
+    if _is_maxdiff_question(question_id, humanize_question(question_id, mapped_kpi), mapped_kpi):
+        return "Delete", "�lev�e"
+    if re.search(r"\bother\s*\(?\s*precise\b", combined) or "autre preciser" in combined:
+        return "Delete", "Moyenne"
+    has_mean = any(_metric_key(metric) == "mean" for metric in metrics)
+    has_box = any(re.fullmatch(r"(?:top|bottom)_[123]", _metric_key(metric)) or "box" in _normal(metric) or "boite" in _normal(metric) for metric in metrics)
+    response_codes = {
+        int(match.group(1))
+        for source,metric in zip(metrics,normalized_metrics)
+        if not re.fullmatch(r'(?:top|bottom)_[123]',_metric_key(source))
+        if (match := re.match(r"^(\d+)\s", metric))
+    }
+    jar_words = ("juste", "just right", "just about right", "ideal", "parfait", "perfect")
+    jar = any(
+        re.match(r"^3\s", metric)
+        and any(word in metric for word in jar_words)
+        for metric in normalized_metrics
+    )
+    direct_strength = (
+        any(re.search(r"\b(?:too\s+)?weak\b|\bfaible\b", metric) for metric in normalized_metrics)
+        and any(any(word in metric for word in jar_words) for metric in normalized_metrics)
+        and any(re.search(r"\b(?:too\s+)?strong\b|\bfort(?:e)?\b", metric) for metric in normalized_metrics)
+    )
+    strength_word = any(word in combined for word in ("intens", "strength", "puissance", "forte", "strong"))
+
+    if _preference_question(question_id, mapped_kpi, metrics):
+        return "Preference", "�lev�e"
+    # Comparative choices must not be collapsed into one CATA response.
+    if _comparative_question(question_id, mapped_kpi, metrics):
+        return "Autres", "Moyenne"
+    if _bipolar_question(question_id, mapped_kpi, metrics):
+        return "Bipolaire", "Moyenne"
+    if response_codes == {1, 2} and any(re.match(r"^1\s+(?:no|non)(?:\s|$)", m) for m in normalized_metrics):
+        return "Attribute", "�lev�e"
+    if jar or direct_strength:
+        return "Strength", "�lev�e"
+    if strength_word and has_box:
+        return "Strength", "Moyenne"
+    interrogative_choice = bool(
+        response_codes
+        and re.search(r"\b(?:which|what|where|how|when|who|quel\w*|quoi|ou|comment|combien)\b", combined)
+    )
+    ordinal_scale = any(
+        re.search(
+            r"\b(?:poor|good|bad|excellent|hate|dislike|like|love|satisf|agree|likely|"
+            r"appeal|pleasant|unpleasant|weak|strong|faible|fort|mauvais|bon|excellent|"
+            r"aime|accord|probable|agreable|desagreable)\b",
+            metric,
+        )
+        for metric in normalized_metrics
+    ) or bool(re.search(r"\b(?:liking|satisf|agree|likely|appeal|intens|strength)\b", combined))
+    if interrogative_choice and not ordinal_scale:
+        return "Listing", "�lev�e"
+    if response_codes and any(word in combined for word in ("listing", "list of", "select all", "which of")):
+        return "Listing", "Moyenne"
+    # A classical scale can be exported with a Mean but without precomputed
+    # box rows. It is still Standard and its Mean must stay available.
+    if has_mean:
+        return "Standard", "�lev�e" if len(response_codes) >= 3 else "Moyenne"
+    if response_codes and not has_mean:
+        return "Listing", "Moyenne"
+    if has_mean and has_box:
+        return "Standard", "�lev�e"
+    if has_box:
+        return "Standard", "Moyenne"
+    return "Autres", "Faible"
+
+
+def _question_metric_rows(sheet, layout):
+    """Yield metric rows while carrying down merged/blank question cells."""
+    current_question = ""
+    current_kpi = ""
+    for row in range(layout.header_row + 1, sheet.max_row + 1):
+        raw_question = _text(sheet.cell(row, layout.metric_col - 1).value)
+        raw_kpi = _text(sheet.cell(row, max(1, layout.metric_col - 2)).value)
+        metric = _text(sheet.cell(row, layout.metric_col).value)
+        if raw_question:
+            current_question = raw_question
+            current_kpi = raw_kpi
+        elif raw_kpi:
+            current_kpi = raw_kpi
+        if metric and current_question:
+            yield row, current_question, current_kpi, metric
+
+
+def _analyze_question_sheet(sheet) -> tuple:
+    """Analyse every question in one validated G-Sight result sheet."""
+    layout = detect_layout(sheet)
+    source_stage = _stage_name(sheet)
+    groups: dict[str, dict] = {}
+    for row, question_id, mapped_kpi, metric in _question_metric_rows(sheet, layout):
+        key = question_id.casefold()
+        if key not in groups:
+            groups[key] = {
+                "question_id": question_id,
+                "mapped_kpi": mapped_kpi,
+                "first_row": row,
+                "metrics": [],
+            }
+        if metric not in groups[key]["metrics"]:
+            groups[key]["metrics"].append(metric)
+
+    prepared = []
+    for group in groups.values():
+        label = humanize_question(group["question_id"], group["mapped_kpi"])
+        question_type, confidence = _classify(group["question_id"], group["mapped_kpi"], group["metrics"])
+        color_code = _color_code(group["question_id"], label)
+        if color_code:
+            label = "Color"
+        section = _suggest_section(
+            group["question_id"],
+            label,
+            question_type,
+            group["mapped_kpi"],
+        )
+        label, metric_label = _attribute_display_labels(
+            group["question_id"], label, question_type, section
+        )
+        prepared.append((
+            _question_priority(group["question_id"], label, section, group["first_row"]),
+            group,
+            label,
+            metric_label,
+            question_type,
+            confidence,
+            section,
+        ))
+
+    proposals = []
+    ordered_prepared = sorted(
+        prepared,
+        key=lambda item: (item[0], _normal(item[1]["question_id"])),
+    )
+    for order, (_, group, label, metric_label, question_type, confidence, section) in enumerate(ordered_prepared, 1):
+        combined = _normal(f"{group['question_id']} {group['mapped_kpi']} {label} {section}")
+        explicit_stages = tuple(
+            stage for stage in ("NEAT", "WET", "DRY", "DAMP")
+            if re.search(rf"\b{_normal(stage)}\b", combined)
+        )
+        # The validated source sheet is stronger evidence than a word inside a
+        # question ID. For example HOW_DRY is a usage question stored in the
+        # OVERALL / IN USE sheet, not a fragrance evaluation at DRY stage.
+        source_has_stage = _normal(source_stage) not in {"", "none", "not specified", "non precise"}
+        fallback_stage = (source_stage,) if source_has_stage else ()
+        proposals.append(
+            QuestionProposal(
+                keep=question_type != "Delete" and section != "USAGE & CONTEXT",
+                order=order,
+                section=section,
+                question_id=group["question_id"],
+                mapped_kpi=group["mapped_kpi"],
+                display_label=label,
+                question_type=question_type,
+                confidence=confidence,
+                first_row=group["first_row"],
+                metrics=tuple(group["metrics"]),
+                metric_label=metric_label,
+                stages=fallback_stage or explicit_stages,
+            )
+        )
+    return sheet.title, layout, tuple(proposals)
+
+
+def analyze_questions(source) -> tuple:
+    """Analyse the primary result sheet for backward-compatible callers."""
+    workbook = _workbook(source)
+    return _analyze_question_sheet(detect_data_sheet(workbook))
+
+
+def inspect_smart_package(raw_files: Sequence[tuple[str, object]]) -> SmartPackageInfo:
+    if not raw_files:
+        raise TemplyfierError("Ajoute au moins un export G-Sight.")
+    candidates = []
+    all_stages: list[str] = []
+    all_splits: list[str] = []
+    warnings: list[str] = []
+    max_rows = 0
+    for filename, source in raw_files:
+        workbook = _workbook(source)
+        sheet = detect_data_sheet(workbook)
+        layout = _active_layout(sheet, detect_layout(sheet))
+        score = sum(count or 0 for count in _signature(sheet, layout))
+        embedded = _embedded_data_sheets(workbook)
+        stage = _stage_name(sheet)
+        max_rows = max(max_rows, sheet.max_row)
+        role = "Comparaison benchmark" if re.search(r"compar(?:aison|ison)?\s+bench", filename, flags=re.I) else "R�sultats"
+        if re.search(r"all\s+splits", filename, flags=re.I) and len(raw_files) > 1:
+            role = "Consolid� de contr�le"
+        embedded_comparison_codes = tuple(dict.fromkeys(
+            code
+            for embedded_sheet in embedded
+            for code in _comparison_codes(
+                embedded_sheet,
+                _active_layout(embedded_sheet, detect_layout(embedded_sheet)),
+            )
+        ))
+        all_stages.extend(_stage_name(item) for item in embedded)
+        all_splits.extend(_split_label(item) for item in embedded)
+        candidates.append((score, filename, source, sheet, layout, role, stage, len(embedded), embedded_comparison_codes))
+
+    study_format = _study_format([name for name, _ in raw_files], tuple(dict.fromkeys(all_stages)), max_rows)
+    if study_format == "HUT / in-use":
+        by_split: dict[str, list[int]] = {}
+        for index, item in enumerate(candidates):
+            if item[5] == "R�sultats":
+                by_split.setdefault(_detected_split_label(item[3]), []).append(index)
+        for indexes in by_split.values():
+            if len(indexes) < 2:
+                continue
+            distinct_codes = {
+                code for index in indexes for code in candidates[index][8]
+            }
+            if len(distinct_codes) > max(len(candidates[index][8]) for index in indexes):
+                # Same consumer split exported once per benchmark: all files are useful.
+                continue
+            richest = max(indexes, key=lambda index: len(candidates[index][8]))
+            for index in indexes:
+                if index != richest:
+                    row = list(candidates[index])
+                    row[5] = "Comparaison benchmark"
+                    candidates[index] = tuple(row)
+    result_candidates = [item for item in candidates if item[5] == "R�sultats"] or candidates
+    _, filename, source, sheet, layout, _, _, _, _ = max(result_candidates, key=lambda item: item[0])
+    inputs = []
+    for score, item_filename, item_source, item_sheet, item_layout, role, stage, embedded_count, comparison_codes in candidates:
+        item_workbook = _workbook(item_source)
+        embedded_sheets = _embedded_data_sheets(item_workbook)
+        split_sheets = (
+            embedded_sheets
+            if role == "R�sultats" and _embedded_sheets_are_consumer_splits(item_filename, embedded_sheets)
+            else (item_sheet,)
+        )
+        for split_sheet in split_sheets:
+            split_layout = _active_layout(split_sheet, detect_layout(split_sheet))
+            if len(split_sheets) > 1:
+                generic_title = bool(re.fullmatch(
+                    r"(?:table|sheet|feuil|data|results?|resultats?)[\s_-]*\d+(?:[\s_-]*2[\s_-]*tailed)?",
+                    _normal(split_sheet.title),
+                    flags=re.I,
+                ))
+                if _has_split_filter(split_sheet) or generic_title:
+                    split_name, split_detection = _split_detection(split_sheet, item_filename)
+                else:
+                    split_name, split_detection = _text(split_sheet.title), "High confidence"
+            else:
+                split_name, split_detection = _split_detection(split_sheet, item_filename)
+            inputs.append(
+                SmartInputInfo(
+                    filename=item_filename,
+                    split_name=split_name,
+                    counts=_signature(split_sheet, split_layout),
+                    product_names=_product_names(split_sheet, split_layout),
+                    source_sheet=split_sheet.title,
+                    role=role,
+                    stage=_stage_name(split_sheet),
+                    embedded_split_count=len(split_sheets),
+                    comparison_codes=_comparison_codes(split_sheet, split_layout),
+                    product_keys=_product_keys(split_sheet, split_layout),
+                    split_detection=split_detection,
+                )
+            )
+    if (
+        study_format not in {"HUT / in-use", "CLT"}
+        and (
+            any("paired" in _normal(item.filename) or "paired" in _normal(item.stage) for item in inputs)
+            or (
+                len(inputs) > 1
+                and all(len(item.product_keys) >= 2 and len(item.product_keys) % 2 == 0 for item in inputs)
+            )
+        )
+    ):
+        study_format = "HUT / in-use"
+    unique_stages = tuple(dict.fromkeys(all_stages))
+    unique_splits = tuple(dict.fromkeys(
+        item.split_name for item in inputs if item.role == "R�sultats"
+    )) or tuple(dict.fromkeys(all_splits))
+    if len(unique_stages) > 1 and study_format != "HUT / in-use":
+        warnings.append("Plusieurs stages d�tect�s : ils doivent �tre assembl�s, pas trait�s comme des splits consommateurs.")
+    if study_format == "HUT / in-use" and len(unique_stages) > 1:
+        warnings.append("HUT reconnu : les valeurs Stage None/USE sont des configurations de comparaison benchmark, pas des touchpoints.")
+    if max(item.embedded_split_count for item in inputs) > 1:
+        warnings.append("Plusieurs tables/splits sont int�gr�s dans chaque export G-Sight.")
+    if any(item.role == "Comparaison benchmark" for item in inputs):
+        warnings.append("Les fichiers de comparaison serviront aux couleurs de significativit�, pas aux valeurs principales.")
+    uncertain_splits=[item.filename for item in inputs if item.split_detection=='Review recommended']
+    if uncertain_splits:
+        warnings.append("Review the detected split for: " + " � ".join(uncertain_splits) + ". The proposed name comes from the filename and remains editable.")
+    # Union of the questions across result exports: a boost-only question must
+    # be proposed even when it does not exist in the TOTAL export.
+    merged_questions: dict[str, QuestionProposal] = {}
+    availability: dict[str, set[str]] = {}
+    metric_availability: dict[str, dict[str, set[str]]] = {}
+    question_candidates = []
+    for candidate in candidates:
+        candidate_input = next(
+            (item for item in inputs
+             if item.filename == candidate[1] and item.role == candidate[5]),
+            None,
+        )
+        if candidate_input is not None and candidate_input.role == "R�sultats":
+            question_candidates.append((candidate, candidate_input))
+    if not question_candidates:
+        question_candidates = [
+            (candidate, next(item for item in inputs if item.filename == candidate[1]))
+            for candidate in candidates
+        ]
+    source_sheet = ""
+    for candidate, input_info in question_candidates:
+        _, item_filename, item_source, _, _, _, _, _, _ = candidate
+        item_workbook = _workbook(item_source)
+        # A single consolidated G-Sight workbook may contain one valid result
+        # sheet per stage (for example NEAT and WET). The former implementation
+        # analysed only detect_data_sheet(), so questions exclusive to every
+        # other stage disappeared from the review and therefore from Excel.
+        embedded_question_sheets = _embedded_data_sheets(item_workbook)
+        sheets_are_splits = _embedded_sheets_are_consumer_splits(
+            item_filename, embedded_question_sheets
+        )
+        for item_sheet in embedded_question_sheets:
+            item_layout = _active_layout(item_sheet, detect_layout(item_sheet))
+            item_source_sheet, _, item_questions = _analyze_question_sheet(item_sheet)
+            if item_filename == filename and not source_sheet:
+                source_sheet = item_source_sheet
+            indexed_metrics: dict[str, dict[str, str]] = {}
+            for source_row, qid, _, metric in _question_metric_rows(item_sheet, item_layout):
+                has_value=any(isinstance(item_sheet.cell(source_row,col).value,(int,float))
+                    and not isinstance(item_sheet.cell(source_row,col).value,bool) for col in item_layout.product_cols)
+                if qid and metric and has_value:
+                    indexed_metrics.setdefault(qid.casefold(),{})[_metric_key(metric)]=metric
+            for proposal in item_questions:
+                key = proposal.question_id.casefold()
+                if key not in indexed_metrics:
+                    continue
+                sheet_input = next(
+                    (
+                        item for item in inputs
+                        if item.filename == item_filename
+                        and item.source_sheet == item_sheet.title
+                    ),
+                    input_info,
+                )
+                availability.setdefault(key, set()).add(
+                    sheet_input.split_name if sheets_are_splits else input_info.split_name
+                )
+                for metric_key in indexed_metrics[key]:
+                    metric_availability.setdefault(key,{}).setdefault(metric_key,set()).add(item_filename)
+                current = merged_questions.get(key)
+                if current is None:
+                    merged_questions[key] = proposal
+                else:
+                    # Keep every available metric, even when stages or splits
+                    # expose equally long but different metric lists. Values
+                    # remain attached to their original result sheet.
+                    merged_questions[key] = replace(
+                        current,
+                        metrics=tuple(dict.fromkeys((*current.metrics, *proposal.metrics))),
+                        stages=tuple(dict.fromkeys((*current.stages, *proposal.stages))),
+                    )
+
+    prepared_questions = []
+    for key, proposal in merged_questions.items():
+        presence=metric_availability.get(key,{})
+        proposal=replace(proposal,metric_availability=tuple(
+            (metric,tuple(item.filename for item in inputs if item.filename in presence.get(_metric_key(metric),set())))
+            for metric in proposal.metrics
+        ))
+        prepared_questions.append((
+            _study_question_priority(
+                study_format,
+                proposal.question_id,
+                proposal.display_label,
+                proposal.section,
+                proposal.first_row,
+                unique_stages,
+            ),
+            proposal,
+            tuple(sorted(availability.get(key, ()), key=_normal)),
+        ))
+    # Several split exports can introduce different questions on the exact same
+    # source row and with the same CMI priority. Never let Python fall through
+    # to comparing QuestionProposal objects, which are intentionally not
+    # orderable; use the stable question identifier as the tie-breaker.
+    sorted_questions = sorted(
+        prepared_questions,
+        key=lambda item: (item[0], _normal(item[1].question_id)),
+    )
+    result_split_names = tuple(dict.fromkeys(item.split_name for item in inputs if item.role == "R�sultats"))
+    summary_candidates = sorted(
+        (
+            (_summary_score(proposal), order_index, proposal.question_id.casefold())
+            for order_index, (_, proposal, _) in enumerate(sorted_questions)
+            if _summary_score(proposal) >= 0
+        ),
+        key=lambda item: (-item[0], item[1]),
+    )
+    proposal_by_id = {proposal.question_id.casefold(): proposal for _, proposal, _ in sorted_questions}
+    suggested_summary_ids = set()
+    seen_summary_labels = set()
+    for _, _, question_id in summary_candidates:
+        proposal = proposal_by_id[question_id]
+        label_key = _normal(_summary_label(proposal.display_label))
+        if label_key in seen_summary_labels:
+            continue
+        suggested_summary_ids.add(question_id)
+        seen_summary_labels.add(label_key)
+        if len(suggested_summary_ids) == 10:
+            break
+    split_suggestions: dict[str, tuple[str, ...]] = {}
+    prior_named: tuple[int, str, int, tuple[str, ...]] | None = None
+    for _, proposal, _ in sorted_questions:
+        suggestion = _suggest_question_splits(
+            proposal.question_id,
+            proposal.display_label,
+            result_split_names,
+        )
+        qmatch = re.match(r"q\s*[-_]?\s*(\d+)(?:\s*[-_]?\s*([a-z]))?", proposal.question_id, flags=re.I)
+        if not suggestion and prior_named and qmatch:
+            qnumber, qletter = int(qmatch.group(1)), (qmatch.group(2) or "").casefold()
+            prior_number, prior_letter, prior_row, prior_suggestion = prior_named
+            if qnumber == prior_number + 1 and qletter == prior_letter and proposal.first_row - prior_row <= 25:
+                suggestion = prior_suggestion
+        if suggestion and qmatch:
+            prior_named = (
+                int(qmatch.group(1)),
+                (qmatch.group(2) or "").casefold(),
+                proposal.first_row,
+                suggestion,
+            )
+        split_suggestions[proposal.question_id.casefold()] = suggestion
+
+    questions = tuple(
+        QuestionProposal(
+            keep=proposal.keep,
+            order=order,
+            section=proposal.section,
+            question_id=proposal.question_id,
+            mapped_kpi=proposal.mapped_kpi,
+            display_label=proposal.display_label,
+            question_type=proposal.question_type,
+            confidence=proposal.confidence,
+            first_row=proposal.first_row,
+            metrics=proposal.metrics,
+            metric_label=proposal.metric_label,
+            availability=item_availability,
+            suggested_splits=split_suggestions.get(proposal.question_id.casefold(), ()),
+            summary_keep=proposal.question_id.casefold() in suggested_summary_ids,
+            summary_label=_summary_label(proposal.display_label),
+            metric_availability=proposal.metric_availability,
+            stages=proposal.stages,
+        )
+        for order, (_, proposal, item_availability) in enumerate(sorted_questions, 1)
+    )
+    if not source_sheet:
+        source_sheet, _, _ = analyze_questions(source)
+    suggested_benchmark_count = _suggest_benchmark_count(inputs)
+    return SmartPackageInfo(
+        reference_filename=filename,
+        source_sheet=source_sheet,
+        product_names=next((item.product_names for item in inputs if item.role == "R�sultats"), inputs[0].product_names),
+        counts=_signature(sheet, layout),
+        questions=questions,
+        inputs=tuple(inputs),
+        study_format=study_format,
+        stages=unique_stages,
+        embedded_splits=unique_splits,
+        warnings=tuple(warnings),
+        suggested_benchmark_count=suggested_benchmark_count,
+        suggested_test_type=_suggest_test_type(inputs),
+    )
+
+
+def profile_to_json(question_rows: Sequence[dict], settings: dict) -> bytes:
+    payload = {"version": 1, "settings": settings, "questions": list(question_rows)}
+    return json.dumps(
+        payload,
+        ensure_ascii=False,
+        indent=2,
+        default=lambda value: value.item() if hasattr(value, "item") else str(value),
+    ).encode("utf-8")
+
+
+def profile_from_json(source: bytes | BinaryIO) -> dict:
+    from .review import validate_profile
+    raw = source if isinstance(source, bytes) else source.read()
+    try:
+        return validate_profile(json.loads(raw.decode("utf-8-sig")))
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise TemplyfierError(f"Impossible de lire les r�glages : {exc}") from exc
+
+
+def apply_profile(proposals: Sequence[QuestionProposal], profile: dict) -> list[dict]:
+    saved = {str(row.get("Question ID", "")).casefold(): row for row in profile.get("questions", [])}
+    result = []
+    for proposal in proposals:
+        base = proposal_to_row(proposal)
+        prior = saved.get(proposal.question_id.casefold())
+        if prior:
+            for field in (
+                "Keep", "Order", "Section", "Display label", "Metric label", "Type", "Custom metrics",
+                "Included splits", "Stage", "KPI Summary", "Summary label", "Sens favorable",
+                "Selected metrics", "Metric labels", "Selection type", "Group ID",
+                "Grouping choice", "Dismissed groups", "Ungrouped labels", *STANDARD_METRICS
+            ):
+                if field in prior:
+                    base[field] = prior[field]
+            # Correct the historic Preference-as-Attribute profile error, but
+            # preserve intentional selections made with the new editor.
+            if "Selected metrics" not in prior and proposal.question_type in {"Autres", "Preference"} and base["Type"] == "Attribute":
+                base["Type"] = proposal.question_type
+                base["Custom metrics"] = ""
+            base["Confidence"] = "Profil"
+        result.append(base)
+    return result
+
+
+def proposal_to_row(proposal: QuestionProposal) -> dict:
+    row = {
+        "Keep": proposal.keep,
+        "Order": proposal.order,
+        "Section": proposal.section,
+        "Question ID": proposal.question_id,
+        "Display label": proposal.display_label,
+        "Metric label": proposal.metric_label,
+        "Type": proposal.question_type,
+        "Confidence": proposal.confidence,
+        "CMI role": _cmi_role(proposal),
+        "CMI note": _cmi_note(proposal),
+        "Available metrics": " � ".join(proposal.metrics),
+        "Availability": " � ".join(proposal.availability) or "Tous les splits",
+        "Included splits": "; ".join(proposal.suggested_splits) or "Tous les splits",
+        "Stage": " ; ".join(proposal.stages) or "Unassigned",
+        "KPI Summary": proposal.summary_keep,
+        "Summary label": proposal.summary_label or _summary_label(proposal.display_label),
+        "Sens favorable": "Id�al au centre" if proposal.question_type == "Strength" else "Automatique",
+        "Custom metrics": "",
+    }
+    defaults = {"Mean", "Top Box", "Top 2 Boxes", "Bottom 2 Boxes"}
+    available = {_metric_key(metric) for metric in proposal.metrics}
+    for metric in STANDARD_METRICS:
+        row[metric] = proposal.question_type == "Standard" and _metric_key(metric) in available and metric in defaults
+    return row
+
+
+def _standard_metrics_for_question(config: dict, fallback: Sequence[str]) -> tuple[str, ...]:
+    custom = _text(config.get("Custom metrics"))
+    if custom:
+        return tuple(value.strip() for value in re.split(r"[;\n|]+", custom) if value.strip())
+    explicit = tuple(metric for metric in STANDARD_METRICS if bool(config.get(metric)))
+    has_columns = any(metric in config for metric in STANDARD_METRICS)
+    return explicit if has_columns else tuple(fallback)
+
+
+def _metric_matches(metric: str, selected: Sequence[str]) -> bool:
+    return _metric_key(metric) in {_metric_key(value) for value in selected}
+
+
+def _strength_keep(metric: str) -> bool:
+    norm = _normal(metric)
+    if _metric_key(metric) in {'top_2','bottom_2'}:
+        return True
+    if norm in {"too weak", "too strong", "trop faible", "trop fort", "just about right", "just right", "juste comme il faut"}:
+        return True
+    return bool(re.match(r"^3\s", norm)) and any(
+        word in norm for word in ("juste", "just right", "just about right", "ideal", "parfait", "perfect")
+    )
+
+
+def _attribute_keep(metric: str) -> bool:
+    norm = _normal(metric)
+    key=_metric_key(metric)
+    if re.fullmatch(r'(?:top|bottom)_[123]',key):return key=='top_1'
+    return bool(re.match(r"^2\s", norm))
+
+
+def _find_source_rows(sheet, layout, question_id: str, question_type: str, standard_metrics: Sequence[str]):
+    question_candidates = [
+        row for row, source_question, _, _ in _question_metric_rows(sheet, layout)
+        if source_question.casefold() == question_id.casefold()
+    ]
+    if question_type == "Strength":
+        direct_labels = {"too weak", "just about right", "too strong"}
+        present = {_analysis_normal(sheet.cell(row, layout.metric_col).value) for row in question_candidates}
+        if direct_labels.issubset(present):
+            return [
+                row for row in question_candidates
+                if _analysis_normal(sheet.cell(row, layout.metric_col).value) in direct_labels
+            ]
+    rows = []
+    for row in question_candidates:
+        metric = _text(sheet.cell(row, layout.metric_col).value)
+        keep = (
+            _metric_matches(metric, standard_metrics) if question_type == "Standard"
+            else _strength_keep(metric) if question_type == "Strength"
+            else _attribute_keep(metric) if question_type == "Attribute"
+            else _metric_matches(metric, standard_metrics) if question_type == "Libre" and standard_metrics
+            else question_type == "Libre"
+        )
+        if keep:
+            values = [sheet.cell(row, col).value for col in layout.product_cols]
+            if any(isinstance(value, (int, float)) and not isinstance(value, bool) for value in values):
+                rows.append(row)
+    if question_type == "Attribute" and len(rows) > 1:
+        preferred = [row for row in rows if re.match(r"^2\s", _normal(sheet.cell(row, layout.metric_col).value))]
+        rows = preferred[:1] or rows[:1]
+    return rows
+
+
+def default_metric_selection(question_type, available):
+    """Suggest only metrics actually exported by G-Sight; never fabricate boxes."""
+    metrics = list(available)
+    if question_type == "Standard":
+        wanted = {"mean", "top_1", "top_2", "bottom_2"}
+        return [m for m in metrics if _metric_key(m) in wanted]
+    if question_type == "Strength":
+        direct = {"too weak", "just about right", "too strong"}
+        if direct.issubset({_analysis_normal(m) for m in metrics}):
+            return [m for m in metrics if _analysis_normal(m) in direct]
+        return [m for m in metrics if _strength_keep(m)]
+    if question_type in {"CATA", "Attribute"}:
+        positive = [m for m in metrics if re.match(r"^2\s", _normal(m)) and not re.fullmatch(r'(?:top|bottom)_[123]',_metric_key(m))]
+        return positive or [m for m in metrics if _metric_key(m) == "top_1"]
+    if question_type == "Delete":
+        return []
+    numbered = [m for m in metrics if re.match(r"^\d+\s", _normal(m)) and not re.fullmatch(r'(?:top|bottom)_[123]',_metric_key(m))]
+    non_aggregate = [m for m in metrics if _metric_key(m) not in {"mean", "top_1", "top_2", "top_3", "bottom_1", "bottom_2", "bottom_3"}]
+    # Unknown wording must never turn a valid numeric question into a blocking
+    # empty recipe. If only aggregate rows exist, keep them all for CMI review.
+    return numbered or non_aggregate or metrics
+
+
+def configured_source_rows(sheet, layout, config, fallback):
+    question_id = _text(config.get("Question ID"))
+    selected = config.get("Selected metrics")
+    if isinstance(selected, (list, tuple)):
+        # Explicit CMI selection overrides every type-specific default, including
+        # strength and CATA. Empty means empty, not 'all metrics'.
+        keys = {_metric_key(m) for m in selected}
+        return [r for r, source_question, _, source_metric in _question_metric_rows(sheet, layout)
+                if source_question.casefold() == question_id.casefold()
+                and _metric_key(source_metric) in keys
+                and any(isinstance(sheet.cell(r, c).value, (int, float))
+                        and not isinstance(sheet.cell(r, c).value, bool) for c in layout.product_cols)]
+    question_type = _text(config.get("Type"))
+    if question_type in {"Autres", "Bipolaire", "Listing", "Preference"}:
+        available = [source_metric
+                     for _, source_question, _, source_metric in _question_metric_rows(sheet, layout)
+                     if source_question.casefold() == question_id.casefold()]
+        custom = _text(config.get("Custom metrics"))
+        selected = (_standard_metrics_for_question(config, fallback) if custom
+                    else default_metric_selection(question_type, available))
+        return configured_source_rows(sheet, layout, {**config, "Selected metrics": selected}, fallback)
+    return _find_source_rows(sheet, layout, question_id, "Attribute" if question_type == "CATA" else question_type,
+                             _standard_metrics_for_question(config, fallback))
+
+
+def clean_metric_label(config, source_metric):
+    labels = config.get("Metric labels", {})
+    if isinstance(labels, dict):
+        for source, label in labels.items():
+            if _metric_key(source) == _metric_key(source_metric) and _text(label):
+                return _text(label)
+    return source_metric
+
+
+def grouped_metric_label(config, source_metric, count):
+    item = _text(config.get('Metric label')) or _text(config.get('Display label'))
+    label = clean_metric_label(config, source_metric)
+    return item if count == 1 and label == source_metric else f'{item} � {label}'
+
+
+def _copy_sheet(source, target):
+    for row in source.iter_rows():
+        for cell in row:
+            new = target[cell.coordinate]
+            new.value = _excel_safe_value(cell.value)
+            if cell.has_style:
+                # `_style` contains workbook-local indexes. Copying it directly
+                # into a new workbook can create invalid alignment/font/fill
+                # references and make openpyxl fail while saving. Assign the
+                # public components so the destination workbook registers them.
+                new.font = copy(cell.font)
+                new.fill = copy(cell.fill)
+                new.border = copy(cell.border)
+                new.alignment = copy(cell.alignment)
+                new.protection = copy(cell.protection)
+                new.number_format = cell.number_format
+    for key, dim in source.column_dimensions.items():
+        target.column_dimensions[key].width = dim.width
+        target.column_dimensions[key].hidden = dim.hidden
+    for key, dim in source.row_dimensions.items():
+        target.row_dimensions[key].height = dim.height
+        target.row_dimensions[key].hidden = dim.hidden
+    for merged in source.merged_cells.ranges:
+        target.merge_cells(str(merged))
+    target.sheet_view.showGridLines = source.sheet_view.showGridLines
+
+
+def _style_sheet(sheet, max_col: int):
+    dark = "#3E356B"
+    light = "#EDEAF7"
+    grid = Side(style="thin", color="B8B8C3")
+    sheet.sheet_view.showGridLines = False
+    sheet.freeze_panes = "C6"
+    sheet.column_dimensions["A"].width = 62
+    sheet.column_dimensions["B"].width = 25
+    for col in range(3, max_col + 1):
+        sheet.column_dimensions[get_column_letter(col)].width = 12
+    sheet.row_dimensions[3].height = 86
+    sheet.row_dimensions[4].height = 22
+    sheet.row_dimensions[5].height = 24
+    sheet.cell(5, 1).value = "Variable"
+    sheet.cell(5, 2).value = "Metric"
+    header = sheet.cell(5, 1).parent.cell
+    for row in (3, 4, 5):
+        for col in range(1, max_col + 1):
+            cell = sheet.cell(row, col)
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            cell.border = Border(bottom=grid, top=grid, left=grid, right=grid)
+    for col in range(1, max_col + 1):
+        sheet.cell(5, col).fill = PatternFill("solid", fgColor=dark.replace("#", ""))
+        sheet.cell(5, col).font = Font(color="FFFFFF", bold=True)
+
+
+def _format_variable_label(sheet, row: int) -> None:
+    cell = sheet.cell(row, 1)
+    if not cell.value:
+        return
+    cell.alignment = Alignment(vertical="center", wrap_text=True)
+    length = len(_text(cell.value))
+    if length > 115:
+        sheet.row_dimensions[row].height = max(sheet.row_dimensions[row].height or 15, 42)
+    elif length > 70:
+        sheet.row_dimensions[row].height = max(sheet.row_dimensions[row].height or 15, 30)
+
+
+def _mean_number_format(decimals: int) -> str:
+    decimals = max(0, min(2, int(decimals)))
+    return "0" if decimals == 0 else "0." + ("0" * decimals)
+
+
+def _safe_difference_formula(
+    candidate_coordinate: str, benchmark_coordinate: str, *, scale: int = 1
+) -> str:
+    """Return a blank unless both source cells contain numeric scores."""
+    difference = f"{candidate_coordinate}-{benchmark_coordinate}"
+    if scale != 1:
+        difference = f"({difference})*{scale}"
+    return (
+        f'=IF(COUNT({candidate_coordinate},{benchmark_coordinate})<2,"",'
+        f'{difference})'
+    )
+
+
+def _style_difference_cell(
+    sheet,
+    cell,
+    *,
+    is_mean: bool,
+    mean_format: str,
+    positive_points: float | None,
+    negative_points: float | None,
+    candidate_value=None,
+    benchmark_value=None,
+) -> None:
+    if is_mean:
+        cell.number_format = mean_format
+        return
+    cell.number_format = '+0 "pts";-0 "pts";0 "pts"'
+    if not (
+        isinstance(candidate_value, (int, float))
+        and not isinstance(candidate_value, bool)
+        and isinstance(benchmark_value, (int, float))
+        and not isinstance(benchmark_value, bool)
+    ):
+        return
+    difference_points = (candidate_value - benchmark_value) * 100
+    if positive_points is not None and difference_points >= float(positive_points):
+        cell.font = Font(color="008A3B", bold=True)
+    elif negative_points is not None and difference_points <= -abs(float(negative_points)):
+        cell.font = Font(color="C62828", bold=True)
+
+
+def _selected_question_rows(question_rows: Sequence[dict]) -> list[dict]:
+    selected = [row for row in question_rows if bool(row.get("Keep")) and row.get("Type") != "Delete"]
+    selected.sort(key=lambda row: (int(row.get("Order", 9999)), str(row.get("Question ID", ""))))
+    if not selected:
+        raise TemplyfierError("Aucune question n'est s�lectionn�e.")
+    return selected
+
+
+def _questions_in_section_blocks(question_rows: Sequence[dict]) -> list[dict]:
+    """Make sections and item families contiguous without mixing both concepts."""
+    question_rows = _coherent_question_structure(question_rows)
+    sections: dict[str, list[dict]] = {}
+    for row in question_rows:
+        section = _text(row.get("Section")) or "TOPLINES"
+        sections.setdefault(section, []).append(row)
+    ordered = []
+    for members in sections.values():
+        emitted_groups = set()
+        for row in members:
+            group_id = _text(row.get("Group ID"))
+            if not group_id:
+                ordered.append(row)
+                continue
+            if group_id in emitted_groups:
+                continue
+            ordered.extend(member for member in members if _text(member.get("Group ID")) == group_id)
+            emitted_groups.add(group_id)
+    return ordered
+
+
+def _coherent_question_structure(question_rows: Sequence[dict]) -> list[dict]:
+    """Return copies where each explicit item family owns exactly one section."""
+    rows = [dict(row) for row in question_rows]
+    families: dict[str, list[tuple[int, dict]]] = {}
+    for index, row in enumerate(rows):
+        group_id = _text(row.get("Group ID"))
+        if not group_id or not _text(row.get("Metric label")):
+            continue
+        families.setdefault(group_id, []).append((index, row))
+    for family_key, members in families.items():
+        if len(members) < 2:
+            continue
+        counts: dict[str, int] = {}
+        first_seen: dict[str, int] = {}
+        original_section: dict[str, str] = {}
+        for index, row in members:
+            section = _text(row.get("Section")) or "TOPLINES"
+            normal_section = _normal(section)
+            counts[normal_section] = counts.get(normal_section, 0) + 1
+            first_seen.setdefault(normal_section, index)
+            original_section.setdefault(normal_section, section)
+        chosen_key = min(counts, key=lambda value: (-counts[value], first_seen[value]))
+        chosen_section = original_section[chosen_key]
+        for _, row in members:
+            row["Section"] = chosen_section
+    return rows
+
+
+def question_structure_summary(question_rows: Sequence[dict]) -> dict:
+    """Summarise CMI-controlled sections and item families before export."""
+    kept = [
+        row for row in question_rows
+        if bool(row.get("Keep", True)) and _text(row.get("Type")) != "Delete"
+    ]
+    sections = {
+        _normal(row.get("Section")) for row in kept if _text(row.get("Section"))
+    }
+    families: dict[str, dict[str, object]] = {}
+    for row in kept:
+        group_id = _text(row.get("Group ID"))
+        if not group_id or not _text(row.get("Metric label")):
+            continue
+        family = families.setdefault(group_id, {
+            "label": _text(row.get("Display label")), "sections": set(),
+        })
+        family["sections"].add(_normal(row.get("Section")) or "(no section)")
+    split_families = [
+        family for family in families.values() if len(family["sections"]) > 1
+    ]
+    return {
+        "section_headers": len(sections),
+        "item_families": len(families),
+        "split_families": len(split_families),
+        "split_family_names": [family["label"] for family in split_families],
+    }
+
+
+def _question_applies_to_split(config: dict, split_name: str) -> bool:
+    raw = _text(config.get("Included splits"))
+    if not raw or _normal(raw) in {"all", "all splits", "tous", "tous les splits", "*"}:
+        return True
+    requested = {
+        _normal(value)
+        for value in re.split(r"[;|\n]+", raw)
+        if _text(value)
+    }
+    return _normal(split_name) in requested
+
+
+def _question_expected_in_source(config: dict, split_name: str, source_sheet) -> bool:
+    """Return whether a selected question must be present in this source table."""
+    if not _question_applies_to_split(config, split_name):
+        return False
+    raw_stage = _text(config.get("Stage"))
+    requested_stages = {
+        _normal(value)
+        for value in re.split(r"[;|\n]+", raw_stage)
+        if _normal(value) not in {"", "all", "all stages", "unassigned", "none", "not specified"}
+    }
+    source_stage = _normal(_stage_name(source_sheet))
+    if not requested_stages or source_stage in {"", "none", "not specified", "non precise"}:
+        return True
+    stage_aliases = {
+        "wet": {"wet", "damp wet"},
+        "damp wet": {"wet", "damp wet"},
+    }
+    source_family = stage_aliases.get(source_stage, {source_stage})
+    return any(source_family & stage_aliases.get(stage, {stage}) for stage in requested_stages)
+
+
+def _raise_for_question_omissions(omissions: Sequence[dict]) -> None:
+    """Block download when a selected question is absent from an expected sheet."""
+    if not omissions:
+        return
+    unique = []
+    seen = set()
+    for item in omissions:
+        identity = (item["question_id"].casefold(), item["sheet"].casefold())
+        if identity not in seen:
+            seen.add(identity)
+            unique.append(item)
+    examples = "; ".join(
+        f"{item['question_id']} ({item['label']}) -> {item['sheet']}"
+        + (f" [missing metrics: {', '.join(item['missing_metrics'])}]" if item.get("missing_metrics") else "")
+        for item in unique[:8]
+    )
+    remaining = len(unique) - 8
+    suffix = f"; and {remaining} more" if remaining > 0 else ""
+    raise TemplyfierError(
+        "Safety check stopped the export because selected questions would be missing from "
+        f"an expected worksheet: {examples}{suffix}. Nothing has been downloaded. "
+        "Check the source G-Sight export or adjust Included splits/Stage in the question table."
+    )
+
+
+def _raise_for_empty_topline_sheets(summary_records: Sequence[dict]) -> None:
+    empty = [
+        record["target"].title
+        for record in summary_records
+        if not any(record.get("question_rows", {}).values())
+    ]
+    if empty:
+        raise TemplyfierError(
+            "Safety check stopped the export because these topline worksheets would contain no result rows: "
+            + ", ".join(empty[:8])
+            + (f", and {len(empty) - 8} more" if len(empty) > 8 else "")
+            + ". Check the selected stages, splits and metrics."
+        )
+
+
+def _raise_for_unwritten_selected_questions(
+    question_rows: Sequence[dict], summary_records: Sequence[dict]
+) -> None:
+    """Guarantee that every retained question reaches at least one topline sheet."""
+    written = {
+        question_id.casefold()
+        for record in summary_records
+        for question_id, rows in record.get("question_rows", {}).items()
+        if rows
+    }
+    missing = [
+        row for row in _selected_question_rows(question_rows)
+        if _text(row.get("Question ID")).casefold() not in written
+    ]
+    if not missing:
+        return
+    def description(row):
+        selected = row.get("Selected metrics")
+        available = row.get("Available metric list")
+        if not isinstance(available, (list, tuple)):
+            available = [
+                value.strip()
+                for value in re.split("\\s*[�\\ufffd]\\s*", _text(row.get("Available metrics")))
+                if value.strip()
+            ]
+        unavailable = (
+            [value for value in selected if _metric_key(value) not in {_metric_key(item) for item in available}]
+            if isinstance(selected, (list, tuple)) else []
+        )
+        # When no source-level availability distinction is possible, show the
+        # most specific/last explicit choice first (for example Bottom 2 Boxes).
+        described_metrics = unavailable or (
+            list(reversed(selected)) if isinstance(selected, (list, tuple)) else []
+        )
+        metrics = (
+            f" [missing metrics: {', '.join(_text(value) for value in described_metrics if _text(value))}]"
+            if described_metrics else ""
+        )
+        return (
+            f"{_text(row.get('Question ID'))} "
+            f"({_text(row.get('Display label')) or _text(row.get('Question ID'))}){metrics}"
+        )
+
+    examples = "; ".join(description(row) for row in missing[:8])
+    suffix = f"; and {len(missing) - 8} more" if len(missing) > 8 else ""
+    raise TemplyfierError(
+        "Safety check stopped the export because retained questions would not appear in any "
+        f"topline worksheet: {examples}{suffix}. Nothing has been downloaded. Check their "
+        "Included splits, Stage and selected metrics."
+    )
+def _missing_selected_metrics(config: dict, source_sheet, layout, source_rows: Sequence[int]) -> list[str]:
+    """Return explicitly selected metrics that cannot be written from this source."""
+    selected = config.get("Selected metrics")
+    if not isinstance(selected, (list, tuple)) or not selected:
+        return []
+    written = {
+        _metric_key(_text(source_sheet.cell(row, layout.metric_col).value))
+        for row in source_rows
+    }
+    return [metric for metric in selected if _metric_key(metric) not in written]
+
+
+def _source_metric_row_count(sheet, layout) -> int:
+    return sum(
+        1 for row in range(layout.header_row + 1, sheet.max_row + 1)
+        if any(isinstance(sheet.cell(row, col).value, (int, float)) and not isinstance(sheet.cell(row, col).value, bool) for col in layout.product_cols)
+    )
+
+
+def _build_paired_toplines(
+    raw_files: Sequence[tuple[str, object]],
+    question_rows: Sequence[dict],
+    *,
+    split_names: Sequence[str],
+    standard_metrics: Sequence[str],
+    include_screeners: bool,
     mean_decimals: int,
     paired_swaps: dict[str, Sequence[int]] | None,
     paired_mappings: dict[str, Sequence[Sequence[int]]] | None,
@@ -2100,4 +4062,3 @@ def build_smart_toplines(
         "gap_negative_points": gap_negative_points,
         "include_sections": bool(include_sections),
     }
-
