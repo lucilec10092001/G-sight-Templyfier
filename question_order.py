@@ -86,7 +86,7 @@ export default function(component) {
     el.ondragend=()=>list.querySelectorAll('.drop-before,.drop-after').forEach(n=>n.classList.remove('drop-before','drop-after'));
   }
   function handle(ids,label) {
-    const h=document.createElement('button');h.type='button';h.className='handle';h.textContent='⠿';
+    const h=document.createElement('button');h.type='button';h.className='handle';h.textContent='::';
     h.setAttribute('aria-label',`Move ${label}`);h.title='Drag to move the selection';
     let start=null, destination=null, moved=false;
     function cleanup(){
@@ -128,21 +128,30 @@ export default function(component) {
     return h;
   }
   function draw(){
-    list.replaceChildren();let previousGroup=null;
+    list.replaceChildren();let previousSection=null, previousGroup=null;
     rows.forEach((r,index)=>{
+      if(r.section!==previousSection){
+        const members=rows.filter(x=>x.section===r.section).map(x=>x.id);
+        const header=document.createElement('div');header.className='section';
+        header.append(checkbox(`Select section ${r.sectionLabel}`,members),handle(members,`section ${r.sectionLabel}`));
+        const title=document.createElement('strong');title.textContent=`${r.sectionLabel} | ${members.length} question(s)`;
+        header.append(title);draggable(header,members,r.id);list.append(header);
+        previousGroup=null;
+      }
       if(r.group && r.group!==previousGroup){
         const members=rows.filter(x=>x.group===r.group).map(x=>x.id);
         const header=document.createElement('div');header.className='group';
         header.append(checkbox(`Select group ${r.groupLabel}`,members),handle(members,`group ${r.groupLabel}`));
-        const title=document.createElement('strong');title.textContent=`${r.groupLabel} · ${members.length} items`;
+        const title=document.createElement('strong');title.textContent=`${r.groupLabel} | ${members.length} items`;
         header.append(title);draggable(header,members,r.id);list.append(header);
       }
+      previousSection=r.section;
       previousGroup=r.group;
       const line=document.createElement('div');line.className='question'+(selected.has(r.id)?' selected':'');
       line.dataset.questionId=r.id;
       line.append(checkbox(`Select ${r.label}`, [r.id]),handle([r.id],r.label));
       const text=document.createElement('span');text.textContent=`${index+1}. ${r.label}`;line.append(text);
-      const type=document.createElement('small');type.textContent=r.type+(r.keep?'':' · excluded');line.append(type);
+      const type=document.createElement('small');type.textContent=r.type+(r.keep?'':' | excluded');line.append(type);
       line.onclick=e=>{
         if(e.target.tagName==='INPUT' || e.target.tagName==='BUTTON')return;
         if(e.shiftKey && anchor!==null){
@@ -156,7 +165,7 @@ export default function(component) {
     end.ondragover=e=>e.preventDefault();end.ondrop=e=>{e.preventDefault();move(dragIds,null);};list.append(end);
     save.disabled=!dirty;
     status.textContent=dirty
-      ? `${selected.size} selected · unsaved order`
+      ? `${selected.size} selected | unsaved order`
       : `${selected.size} selected question(s)`;
   }
   draw();
@@ -175,9 +184,11 @@ _ORDER = st.components.v2.component(
     button:disabled {opacity:.45;cursor:not-allowed;}
     .save-order:not(:disabled) {background:var(--st-primary-color);color:white;border-color:var(--st-primary-color);}
     .order-list {max-height:420px;overflow:auto;border:1px solid var(--st-border-color);border-radius:8px;}
-    .question,.group {display:flex;align-items:center;gap:10px;padding:9px 12px;cursor:grab;border-bottom:1px solid var(--st-border-color);}
+    .question,.group,.section {display:flex;align-items:center;gap:10px;padding:9px 12px;cursor:grab;border-bottom:1px solid var(--st-border-color);}
     .question span {flex:1;} small {opacity:.7;} input {accent-color:var(--st-primary-color);}
-    .group {background:var(--st-secondary-background-color);}
+    .section {background:color-mix(in srgb,var(--st-primary-color) 13%,var(--st-secondary-background-color));padding:11px 12px;}
+    .group {background:var(--st-secondary-background-color);padding-left:28px;}
+    .question {padding-left:46px;}
     .selected {outline:1px solid var(--st-primary-color);outline-offset:-1px;}
     .drop-before {border-top:3px solid var(--st-primary-color);}
     .drop-after {border-bottom:3px solid var(--st-primary-color);}
@@ -190,5 +201,9 @@ _ORDER = st.components.v2.component(
 def question_order(rows, revision, key):
     return _ORDER(data={'revision': revision, 'rows': [
         {'id':r['Question ID'], 'label':r.get('Metric label') or r['Display label'],
-         'group':r.get('Group ID',''), 'groupLabel':r['Display label'], 'type':TEXT.get(r['Type'],r['Type']), 'keep':r['Keep']}
+         'section':r.get('Section','') or '__NO_SECTION__',
+         'sectionLabel':r.get('Section','') or 'No section header',
+         'group':r.get('Group ID',''), 'groupLabel':r['Display label'],
+         'type':TEXT.get(r['Type'],r['Type']), 'keep':r['Keep']}
         for r in rows]}, key=key, on_reordered_change=lambda: None)
+
