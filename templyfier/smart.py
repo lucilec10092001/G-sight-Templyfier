@@ -2654,6 +2654,21 @@ def _source_metric_row_count(sheet, layout) -> int:
     )
 
 
+def _paired_header_product_label(sheet, layout, position: int) -> str:
+    """Return a readable product name while retaining its source code."""
+    raw_col = layout.product_cols[position]
+    name = _text(sheet.cell(layout.product_name_row, raw_col).value)
+    code = _text(sheet.cell(layout.product_header_row, raw_col).value)
+    if code and code.casefold() not in name.casefold():
+        return f"{name}\n{code}" if name else code
+    return name or code
+
+
+def _paired_base_label(value) -> str:
+    count = _count_from_header(value)
+    return f"Base: n={count}" if count is not None else _text(value)
+
+
 def _build_paired_toplines(
     raw_files: Sequence[tuple[str, object]],
     question_rows: Sequence[dict],
@@ -2740,15 +2755,64 @@ def _build_paired_toplines(
         pairs_by_split[sheet_name] = len(pairs)
         _style_sheet(target, max_col)
         for pair_number, block in enumerate(blocks, 1):
-            for role, position in (("benchmark", block["benchmark_pos"]), ("candidate", block["candidate_pos"])):
+            last_pair_col = block["delta"] or block["candidate"]
+            pair_fill = PatternFill("solid", fgColor="183D45")
+            pair_subfill = PatternFill("solid", fgColor="E4EEEE")
+            for col in range(block["benchmark"], last_pair_col + 1):
+                target.cell(1, col).fill = pair_fill
+                target.cell(1, col).font = Font(color="FFFFFF", bold=True)
+                target.cell(1, col).alignment = Alignment(horizontal="center", vertical="center")
+                target.cell(2, col).fill = pair_subfill
+                target.cell(2, col).font = Font(color="183D45", bold=True)
+                target.cell(2, col).alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            target.merge_cells(
+                start_row=1, start_column=block["benchmark"],
+                end_row=1, end_column=last_pair_col,
+            )
+            target.merge_cells(
+                start_row=2, start_column=block["benchmark"],
+                end_row=2, end_column=last_pair_col,
+            )
+            target.cell(1, block["benchmark"]).value = f"PAIR {pair_number}"
+            benchmark_name = _text(source_sheet.cell(
+                layout.product_name_row, layout.product_cols[block["benchmark_pos"]]
+            ).value)
+            candidate_name = _text(source_sheet.cell(
+                layout.product_name_row, layout.product_cols[block["candidate_pos"]]
+            ).value)
+            target.cell(2, block["benchmark"]).value = (
+                f"{candidate_name} vs {benchmark_name}"
+            )
+            target.row_dimensions[1].height = 24
+            target.row_dimensions[2].height = 36
+
+            for role, position, role_label, fill_color in (
+                ("benchmark", block["benchmark_pos"], "Benchmark", "E7ECEF"),
+                ("candidate", block["candidate_pos"], "Candidate", "EDEAF7"),
+            ):
                 raw_col = layout.product_cols[position]
                 out_col = block[role]
-                target.cell(3, out_col).value = _excel_safe_value(source_sheet.cell(layout.product_name_row, raw_col).value)
-                target.cell(4, out_col).value = _excel_safe_value(source_sheet.cell(layout.sample_row, raw_col).value)
-                target.cell(5, out_col).value = _excel_safe_value(source_sheet.cell(layout.product_header_row, raw_col).value)
+                target.cell(3, out_col).value = _excel_safe_value(
+                    _paired_header_product_label(source_sheet, layout, position)
+                )
+                target.cell(4, out_col).value = _excel_safe_value(
+                    _paired_base_label(source_sheet.cell(layout.sample_row, raw_col).value)
+                )
+                target.cell(5, out_col).value = role_label
+                for row in (3, 4):
+                    target.cell(row, out_col).fill = PatternFill("solid", fgColor=fill_color)
+                    target.cell(row, out_col).font = Font(color="252434", bold=row == 3)
             if block["delta"] is not None:
-                target.cell(3, block["delta"]).value = f"Paire {pair_number}"
-                target.cell(5, block["delta"]).value = "Delta Candidat - Benchmark"
+                target.cell(3, block["delta"]).value = "Candidate - Benchmark"
+                target.cell(4, block["delta"]).value = "Score difference"
+                target.cell(5, block["delta"]).value = "Gap"
+                for row in (3, 4):
+                    target.cell(row, block["delta"]).fill = PatternFill("solid", fgColor="E4EEEE")
+                    target.cell(row, block["delta"]).font = Font(color="183D45", bold=row == 3)
+            target.column_dimensions[get_column_letter(block["benchmark"])].width = 15
+            target.column_dimensions[get_column_letter(block["candidate"])].width = 15
+            if block["delta"] is not None:
+                target.column_dimensions[get_column_letter(block["delta"])].width = 12
             if pair_number < len(blocks):
                 target.column_dimensions[get_column_letter(block["spacer"])].width = 3
 
