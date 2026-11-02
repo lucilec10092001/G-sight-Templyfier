@@ -16,7 +16,8 @@ from templyfier.editor_model import (
     reorder_rows, set_metric_selection,
 )
 from templyfier.smart import (
-    _coherent_question_structure, _metric_key, proposal_to_row, question_structure_summary,
+    _coherent_question_structure, _metric_key, _questions_in_section_blocks,
+    proposal_to_row, question_structure_summary,
 )
 
 
@@ -170,7 +171,7 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
             for index, row in enumerate(initial_rows, 1):
                 row["Order"] = index
         initial_structure = question_structure_summary(initial_rows)
-        initial_rows = _coherent_question_structure(initial_rows)
+        initial_rows = _questions_in_section_blocks(initial_rows)
         st.session_state[model_key] = {
             "rows": initial_rows, "revision": 0, "history": [], "stage_order": list(stage_order),
             "reconciled_families": initial_structure["split_families"],
@@ -453,7 +454,7 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
                 row["Metric label"] = ""
         _apply_group_wide_table_edits(changed, rows, visible, edit_records)
         structure_before = question_structure_summary(changed)
-        changed = _coherent_question_structure(changed)
+        changed = _questions_in_section_blocks(changed)
         if structure_before["split_families"]:
             model["reconciled_families"] = structure_before["split_families"]
         return changed, {row["Question ID"]: row for row in changed}
@@ -488,14 +489,17 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
     st.caption("Question-table edits are saved automatically.")
 
     with st.expander("Change question order - optional", expanded=False):
-        st.caption("Select one or several questions, including non-adjacent rows, and drag a handle. "
-                   "Moves stay local until **Save order**, so the page does not reload after every move.")
+        st.caption(
+            "Sections and item families are shown as complete blocks. Drag a block header to move it, "
+            "or select questions to reorder them inside their block. Changes apply only after **Save order**."
+        )
         order_result = question_order(rows, revision, f"order_{key}")
         event = order_result.reordered
         if event and event.get("revision") == revision:
             try:
                 if event["ids"] != [row["Question ID"] for row in rows]:
-                    if commit(reorder_rows(rows, event["ids"]), "Question order updated."):
+                    ordered = _questions_in_section_blocks(reorder_rows(rows, event["ids"]))
+                    if commit(ordered, "Question order updated; sections and item families kept together."):
                         st.rerun()
             except (ValueError, KeyError, TypeError) as exc:
                 st.error(f"Move not applied: {exc}")
@@ -530,6 +534,9 @@ def render_optional_question_tools(key, memory=None, protected_ids=(), project_k
         result = question_order(rows, revision, f"order_optional_{key}")
         event = result.reordered
         if event and event.get("revision") == revision and event["ids"] != [row["Question ID"] for row in rows]:
-            commit(reorder_rows(rows, event["ids"]), "Question order updated.")
+            commit(
+                _questions_in_section_blocks(reorder_rows(rows, event["ids"])),
+                "Question order updated; sections and item families kept together.",
+            )
     return pd.DataFrame(export_rows(model["rows"]))
 
