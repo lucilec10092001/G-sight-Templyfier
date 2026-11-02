@@ -44,8 +44,8 @@ st.markdown(
       div[data-testid="stButton"] button[kind="primary"], div[data-testid="stDownloadButton"] button {min-height:3rem; font-weight:700; border-radius:12px;}
     </style>
     <div class="hero">
-      <h1>G-Sight Templyfier <span style="font-size:.85rem;opacity:.75">v106</span></h1>
-      <p>Turn your G-Sight outputs into review-ready Excel toplines.</p><!-- v106 readable question blocks -->
+      <h1>G-Sight Templyfier <span style="font-size:.85rem;opacity:.75">v107</span></h1>
+      <p>Turn your G-Sight outputs into review-ready Excel toplines.</p><!-- v107 clearer paired comparisons -->
       <span class="privacy">&#128274; PRIVACY_TEXT</span>
     </div>
     """.replace("PRIVACY_TEXT", privacy_text),
