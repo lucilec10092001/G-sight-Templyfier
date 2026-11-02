@@ -422,6 +422,8 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
                 type_sources,
             )
             grouped_before = bool(row.get("Group ID"))
+            original_group_id = row.get("Group ID", "")
+            original_group_label = row.get("Display label", "") if grouped_before else ""
             variable = _clean(edit.get(
                 "Variable / item",
                 row.get("Metric label") if grouped_before else row["Display label"],
@@ -445,14 +447,17 @@ def render_question_editor(frame, proposals, key, memory=None, protected_ids=(),
                 ),
             })
             if group:
-                row["Group ID"] = _group_id(section, group)
+                row["Group ID"] = (
+                    original_group_id
+                    if grouped_before and _clean(group) == _clean(original_group_label)
+                    else _group_id(section, group)
+                )
                 row["Display label"] = group
                 row["Metric label"] = variable
             else:
                 row["Group ID"] = ""
                 row["Display label"] = variable
                 row["Metric label"] = ""
-        _apply_group_wide_table_edits(changed, rows, visible, edit_records)
         structure_before = question_structure_summary(changed)
         changed = _questions_in_section_blocks(changed)
         if structure_before["split_families"]:
