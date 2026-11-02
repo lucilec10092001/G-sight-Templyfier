@@ -2357,6 +2357,21 @@ def _format_variable_label(sheet, row: int) -> None:
         sheet.row_dimensions[row].height = max(sheet.row_dimensions[row].height or 15, 30)
 
 
+def _apply_question_block_separator(
+    sheet, row: int, max_col: int, *, excluded_columns: Sequence[int] = ()
+) -> None:
+    """Mark the end of a question or item family without adding blank rows."""
+    separator = Side(style="medium", color="9AA0AA")
+    excluded = set(excluded_columns)
+    for col in range(1, max_col + 1):
+        if col in excluded:
+            continue
+        cell = sheet.cell(row, col)
+        border = copy(cell.border)
+        border.bottom = separator
+        cell.border = border
+
+
 def _mean_number_format(decimals: int) -> str:
     decimals = max(0, min(2, int(decimals)))
     return "0" if decimals == 0 else "0." + ("0" * decimals)
@@ -2740,6 +2755,8 @@ def _build_paired_toplines(
         output_row = 6
         current_section = None
         previous_variable_label = None
+        pending_family_key = None
+        pending_family_last_row = None
         summary_question_rows: dict[str, list[tuple[int, str]]] = {}
         for config in output_questions:
             if not _question_applies_to_split(config, split_names[file_index]):
@@ -2769,6 +2786,12 @@ def _build_paired_toplines(
                     "missing_metrics": missing_metrics,
                 })
                 continue
+            family_id = _text(config.get("Group ID"))
+            family_key = ("family", _text(config.get("Section")).casefold(), family_id.casefold()) if family_id else (
+                "question", question_id.casefold()
+            )
+            if pending_family_last_row is not None and family_key != pending_family_key:
+                _apply_question_block_separator(target, pending_family_last_row, max_col)
             section = _text(config.get("Section"))
             section_changed = section != current_section
             if include_sections and section_changed:
@@ -2848,6 +2871,10 @@ def _build_paired_toplines(
                 summary_question_rows.setdefault(question_id.casefold(), []).append((output_row, source_metric))
                 output_row += 1
                 written_data_rows += 1
+            pending_family_key = family_key
+            pending_family_last_row = output_row - 1
+        if pending_family_last_row is not None:
+            _apply_question_block_separator(target, pending_family_last_row, max_col)
         target.auto_filter.ref = f"A5:{get_column_letter(max_col)}{output_row - 1}"
         fake_blocks = {
             pair_index: {
@@ -3855,6 +3882,9 @@ def build_smart_toplines(
             output_row = 6
             current_section = None
             previous_variable_label = None
+            pending_family_key = None
+            pending_family_last_row = None
+            spacer_columns = [block["spacer"] for block in column_blocks.values()]
             summary_question_rows: dict[str, list[tuple[int, str]]] = {}
             for config in output_questions:
                 if not _question_applies_to_split(config, split_display_name):
@@ -3905,6 +3935,17 @@ def build_smart_toplines(
                         "missing_metrics": missing_metrics,
                     })
                     continue
+                family_id = _text(config.get("Group ID"))
+                family_key = ("family", _text(config.get("Section")).casefold(), family_id.casefold()) if family_id else (
+                    "question", question_id.casefold()
+                )
+                if pending_family_last_row is not None and family_key != pending_family_key:
+                    _apply_question_block_separator(
+                        target,
+                        pending_family_last_row,
+                        max_col,
+                        excluded_columns=spacer_columns,
+                    )
 
                 for metric_index, source_row in enumerate(source_rows):
                     source_metric = _text(source_sheet.cell(source_row, layout.metric_col).value)
@@ -3980,7 +4021,6 @@ def build_smart_toplines(
                                     value_cell.fill = fill
 
                     thin = Side(style="thin", color="B8B8C3")
-                    spacer_columns = [block["spacer"] for block in column_blocks.values()]
                     for col in range(2, max_col + 1):
                         if col not in spacer_columns:
                             target.cell(output_row, col).border = Border(bottom=thin)
@@ -3988,6 +4028,16 @@ def build_smart_toplines(
                     summary_question_rows.setdefault(question_id.casefold(), []).append((output_row, source_metric))
                     output_row += 1
                     written_data_rows += 1
+                pending_family_key = family_key
+                pending_family_last_row = output_row - 1
+
+            if pending_family_last_row is not None:
+                _apply_question_block_separator(
+                    target,
+                    pending_family_last_row,
+                    max_col,
+                    excluded_columns=spacer_columns,
+                )
 
             target.auto_filter.ref = f"A5:{get_column_letter(max_col)}{output_row - 1}"
             summary_records.append({
