@@ -392,6 +392,19 @@ class EditorTests(unittest.TestCase):
         self.assertEqual([row['Section'] for row in ordered], ['FIRST', 'SECOND'])
         self.assertEqual([row['Group ID'] for row in ordered], ['family-one', 'family-two'])
 
+    def test_family_consolidation_groups_matching_rows_after_apply(self):
+        from templyfier.smart import _questions_in_section_blocks
+        rows = [
+            {'Question ID': 'Q1', 'Section': 'FRAGRANCE', 'Display label': 'Fragrance territory',
+             'Metric label': 'Floral', 'Group ID': 'territory-one', 'Stage': 'WET'},
+            {'Question ID': 'Q2', 'Section': 'FRAGRANCE', 'Display label': 'Fragrance attribute',
+             'Metric label': 'Fresh', 'Group ID': 'attribute', 'Stage': 'WET'},
+            {'Question ID': 'Q3', 'Section': 'FRAGRANCE', 'Display label': 'Fragrance territory',
+             'Metric label': 'Clean', 'Group ID': 'territory-two', 'Stage': 'WET'},
+        ]
+        ordered = _questions_in_section_blocks(rows)
+        self.assertEqual([row['Question ID'] for row in ordered], ['Q1', 'Q3', 'Q2'])
+
     def test_partial_profile_new_rows_do_not_create_nan_groups(self):
         import pandas as pd
         partial=deepcopy(self.rows[0]);partial['Group ID']='saved'
