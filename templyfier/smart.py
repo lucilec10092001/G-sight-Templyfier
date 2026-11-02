@@ -2437,12 +2437,13 @@ def _questions_in_section_blocks(question_rows: Sequence[dict]) -> list[dict]:
 def _coherent_question_structure(question_rows: Sequence[dict]) -> list[dict]:
     """Return copies where each explicit item family owns exactly one section."""
     rows = [dict(row) for row in question_rows]
-    families: dict[str, list[tuple[int, dict]]] = {}
+    families: dict[tuple[str, str], list[tuple[int, dict]]] = {}
     for index, row in enumerate(rows):
         group_id = _text(row.get("Group ID"))
         if not group_id or not _text(row.get("Metric label")):
             continue
-        families.setdefault(group_id, []).append((index, row))
+        family_key = (_normal(row.get("Display label")), _normal(row.get("Stage")))
+        families.setdefault(family_key, []).append((index, row))
     for family_key, members in families.items():
         if len(members) < 2:
             continue
@@ -2457,8 +2458,12 @@ def _coherent_question_structure(question_rows: Sequence[dict]) -> list[dict]:
             original_section.setdefault(normal_section, section)
         chosen_key = min(counts, key=lambda value: (-counts[value], first_seen[value]))
         chosen_section = original_section[chosen_key]
+        coherent_id = "family:" + re.sub(
+            r"[^a-z0-9]+", "-", "-".join(family_key)
+        ).strip("-")
         for _, row in members:
             row["Section"] = chosen_section
+            row["Group ID"] = coherent_id
     return rows
 
 
@@ -2471,12 +2476,13 @@ def question_structure_summary(question_rows: Sequence[dict]) -> dict:
     sections = {
         _normal(row.get("Section")) for row in kept if _text(row.get("Section"))
     }
-    families: dict[str, dict[str, object]] = {}
+    families: dict[tuple[str, str], dict[str, object]] = {}
     for row in kept:
         group_id = _text(row.get("Group ID"))
         if not group_id or not _text(row.get("Metric label")):
             continue
-        family = families.setdefault(group_id, {
+        family_key = (_normal(row.get("Display label")), _normal(row.get("Stage")))
+        family = families.setdefault(family_key, {
             "label": _text(row.get("Display label")), "sections": set(),
         })
         family["sections"].add(_normal(row.get("Section")) or "(no section)")
