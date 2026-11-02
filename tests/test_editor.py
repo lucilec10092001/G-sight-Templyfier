@@ -366,7 +366,7 @@ class EditorTests(unittest.TestCase):
         self.assertEqual(len({row['Group ID'] for row in family}), 1)
         self.assertEqual(question_structure_summary(ordered)['split_families'], 0)
 
-    def test_same_label_does_not_merge_distinct_item_families(self):
+    def test_same_item_family_label_merges_old_technical_groups(self):
         from templyfier.smart import _questions_in_section_blocks, question_structure_summary
         rows = [
             {'Question ID': 'Q1', 'Section': 'FIRST', 'Display label': 'Attributes',
@@ -375,10 +375,22 @@ class EditorTests(unittest.TestCase):
              'Metric label': 'Soft', 'Group ID': 'family-two', 'Stage': 'WET'},
         ]
         ordered = _questions_in_section_blocks(rows)
+        self.assertEqual({row['Section'] for row in ordered}, {'FIRST'})
+        self.assertEqual(len({row['Group ID'] for row in ordered}), 1)
+        self.assertEqual(question_structure_summary(ordered)['item_families'], 1)
+        self.assertEqual(question_structure_summary(ordered)['split_families'], 0)
+
+    def test_different_item_family_labels_remain_separate(self):
+        from templyfier.smart import _questions_in_section_blocks
+        rows = [
+            {'Question ID': 'Q1', 'Section': 'FIRST', 'Display label': 'Colour',
+             'Metric label': 'Blue', 'Group ID': 'family-one', 'Stage': 'WET'},
+            {'Question ID': 'Q2', 'Section': 'SECOND', 'Display label': 'Attributes',
+             'Metric label': 'Soft', 'Group ID': 'family-two', 'Stage': 'WET'},
+        ]
+        ordered = _questions_in_section_blocks(rows)
         self.assertEqual([row['Section'] for row in ordered], ['FIRST', 'SECOND'])
         self.assertEqual([row['Group ID'] for row in ordered], ['family-one', 'family-two'])
-        self.assertEqual(question_structure_summary(ordered)['item_families'], 2)
-        self.assertEqual(question_structure_summary(ordered)['split_families'], 0)
 
     def test_partial_profile_new_rows_do_not_create_nan_groups(self):
         import pandas as pd
