@@ -129,6 +129,21 @@ class EditorTests(unittest.TestCase):
             self.assertTrue(all(formula.startswith('=IF(COUNT(') for formula in formulas))
             self.assertTrue(all('<2,"",' in formula for formula in formulas))
 
+    def test_question_blocks_end_with_a_visible_separator_in_every_design(self):
+        for test_type in ('Monadic', 'Paired'):
+            raw = self.raw if test_type == 'Monadic' else source_bytes(paired=True)
+            _, rows = prepared(raw)
+            selected = next(row for row in rows if row['Question ID'] == 'Q-1-Overall liking')
+            data, _ = build_smart_toplines(
+                [('test.xlsx', raw)], export_rows([selected]),
+                split_names=['TOTAL'], benchmark_positions=[0], standard_metrics=AGG,
+                include_screeners=False, include_sections=False, test_type=test_type,
+            )
+            sheet = load_workbook(BytesIO(data), data_only=False).active
+            self.assertGreater(sheet.max_row, 6)
+            self.assertEqual(sheet.cell(sheet.max_row, 1).border.bottom.style, 'medium')
+            self.assertEqual(sheet.cell(sheet.max_row, 2).border.bottom.style, 'medium')
+
     def test_repeated_sections_are_written_as_single_contiguous_blocks(self):
         rows = export_rows(self.rows[:3])
         rows[0]['Section'] = 'FRAGRANCE BENEFITS'
