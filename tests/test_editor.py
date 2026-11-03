@@ -162,12 +162,17 @@ class EditorTests(unittest.TestCase):
             )
             sheet = load_workbook(BytesIO(data), data_only=False).active
             self.assertIn(expected_merge, {str(cell_range) for cell_range in sheet.merged_cells.ranges})
-            self.assertEqual(sheet['C1'].value, 'PAIR 1')
+            self.assertEqual(sheet['C1'].value, 'PAIR 1 � CANDIDATE VS BENCHMARK')
             self.assertEqual(sheet['C2'].value, 'FANTASY CANDIDATE vs FANTASY BENCHMARK')
             self.assertEqual(sheet['C3'].value, 'FANTASY BENCHMARK\nFORMULA B')
             self.assertEqual(sheet['D3'].value, 'FANTASY CANDIDATE\nFORMULA C')
             self.assertEqual(tuple(sheet.cell(5, col).value for col in range(3, 3 + len(expected_headers))), expected_headers)
             self.assertEqual(sheet.freeze_panes, 'C6')
+            last_pair_col = 5 if include_deltas else 4
+            self.assertEqual(sheet.cell(6, 3).border.left.style, 'thin')
+            self.assertEqual(sheet.cell(6, last_pair_col).border.right.style, 'thin')
+            self.assertEqual(sheet.cell(6, 2).border.bottom.style, 'thin')
+            self.assertEqual(sheet.cell(sheet.max_row, 2).border.bottom.style, 'medium')
 
     def test_multiple_paired_blocks_keep_independent_headers_and_spacers(self):
         workbook = load_workbook(BytesIO(source_bytes(paired=True)))
@@ -194,8 +199,13 @@ class EditorTests(unittest.TestCase):
         sheet = load_workbook(BytesIO(data), data_only=False).active
         merges = {str(cell_range) for cell_range in sheet.merged_cells.ranges}
         self.assertTrue({'C1:E1', 'G1:I1'}.issubset(merges))
-        self.assertEqual((sheet['C1'].value, sheet['G1'].value), ('PAIR 1', 'PAIR 2'))
+        self.assertEqual(
+            (sheet['C1'].value, sheet['G1'].value),
+            ('PAIR 1 � CANDIDATE VS BENCHMARK', 'PAIR 2 � CANDIDATE VS BENCHMARK'),
+        )
         self.assertEqual(sheet.column_dimensions['F'].width, 3)
+        self.assertIsNone(sheet['F6'].border.left.style)
+        self.assertIsNone(sheet['F6'].border.right.style)
         self.assertEqual(report['pairs'], 2)
 
     def test_repeated_sections_are_written_as_single_contiguous_blocks(self):
