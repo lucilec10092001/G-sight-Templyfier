@@ -157,11 +157,15 @@ class EditorTests(unittest.TestCase):
                 split_names=['TOTAL'], benchmark_positions=(), standard_metrics=AGG,
                 include_screeners=False, include_sections=False, test_type='Paired',
                 include_deltas=include_deltas,
+                product_labels=('FANTASY BENCHMARK', 'FANTASY CANDIDATE'),
+                product_subtitles=('FORMULA B', 'FORMULA C'),
             )
             sheet = load_workbook(BytesIO(data), data_only=False).active
             self.assertIn(expected_merge, {str(cell_range) for cell_range in sheet.merged_cells.ranges})
             self.assertEqual(sheet['C1'].value, 'PAIR 1')
-            self.assertEqual(sheet['C2'].value, 'Candidate vs Benchmark')
+            self.assertEqual(sheet['C2'].value, 'FANTASY CANDIDATE vs FANTASY BENCHMARK')
+            self.assertEqual(sheet['C3'].value, 'FANTASY BENCHMARK\nFORMULA B')
+            self.assertEqual(sheet['D3'].value, 'FANTASY CANDIDATE\nFORMULA C')
             self.assertEqual(tuple(sheet.cell(5, col).value for col in range(3, 3 + len(expected_headers))), expected_headers)
             self.assertEqual(sheet.freeze_panes, 'C6')
 
