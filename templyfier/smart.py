@@ -2675,6 +2675,33 @@ def _paired_base_label(value) -> str:
     return f"Base: n={count}" if count is not None else _text(value)
 
 
+def _apply_paired_block_outlines(
+    sheet,
+    blocks: Sequence[dict],
+    first_row: int,
+    last_row: int,
+    *,
+    excluded_rows: Sequence[int] = (),
+) -> None:
+    """Keep every pair visually traceable without colouring result cells."""
+    outline = Side(style="thin", color="9AA0AA")
+    excluded = set(excluded_rows)
+    for row in range(first_row, last_row + 1):
+        if row in excluded:
+            continue
+        for block in blocks:
+            left_cell = sheet.cell(row, block["benchmark"])
+            left_border = copy(left_cell.border)
+            left_border.left = outline
+            left_cell.border = left_border
+
+            right_col = block["delta"] or block["candidate"]
+            right_cell = sheet.cell(row, right_col)
+            right_border = copy(right_cell.border)
+            right_border.right = outline
+            right_cell.border = right_border
+
+
 def _build_paired_toplines(
     raw_files: Sequence[tuple[str, object]],
     question_rows: Sequence[dict],
@@ -2788,7 +2815,9 @@ def _build_paired_toplines(
                 start_row=2, start_column=block["benchmark"],
                 end_row=2, end_column=last_pair_col,
             )
-            target.cell(1, block["benchmark"]).value = f"PAIR {pair_number}"
+            target.cell(1, block["benchmark"]).value = (
+                f"PAIR {pair_number} � CANDIDATE VS BENCHMARK"
+            )
             benchmark_name = _text(source_sheet.cell(
                 layout.product_name_row, layout.product_cols[block["benchmark_pos"]]
             ).value)
@@ -2825,14 +2854,24 @@ def _build_paired_toplines(
                 target.cell(5, out_col).value = role_label
                 for row in (3, 4):
                     target.cell(row, out_col).fill = PatternFill("solid", fgColor=fill_color)
-                    target.cell(row, out_col).font = Font(color="252434", bold=row == 3)
+                    target.cell(row, out_col).font = Font(
+                        color="252434" if row == 3 else "61616B",
+                        bold=row == 3,
+                        size=10 if row == 3 else 9,
+                    )
+                target.cell(5, out_col).font = Font(color="FFFFFF", bold=True, size=9)
             if block["delta"] is not None:
                 target.cell(3, block["delta"]).value = "Candidate - Benchmark"
                 target.cell(4, block["delta"]).value = "Score difference"
                 target.cell(5, block["delta"]).value = "Gap"
                 for row in (3, 4):
                     target.cell(row, block["delta"]).fill = PatternFill("solid", fgColor="E4EEEE")
-                    target.cell(row, block["delta"]).font = Font(color="183D45", bold=row == 3)
+                    target.cell(row, block["delta"]).font = Font(
+                        color="183D45" if row == 3 else "61616B",
+                        bold=row == 3,
+                        size=10 if row == 3 else 9,
+                    )
+                target.cell(5, block["delta"]).font = Font(color="FFFFFF", bold=True, size=9)
             target.column_dimensions[get_column_letter(block["benchmark"])].width = 15
             target.column_dimensions[get_column_letter(block["candidate"])].width = 15
             if block["delta"] is not None:
@@ -2845,6 +2884,10 @@ def _build_paired_toplines(
         previous_variable_label = None
         pending_family_key = None
         pending_family_last_row = None
+        section_rows: set[int] = set()
+        spacer_columns = {
+            block["spacer"] for block in blocks if block["spacer"] <= max_col
+        }
         summary_question_rows: dict[str, list[tuple[int, str]]] = {}
         for config in output_questions:
             if not _question_applies_to_split(config, split_names[file_index]):
@@ -2879,13 +2922,19 @@ def _build_paired_toplines(
                 "question", question_id.casefold()
             )
             if pending_family_last_row is not None and family_key != pending_family_key:
-                _apply_question_block_separator(target, pending_family_last_row, max_col)
+                _apply_question_block_separator(
+                    target,
+                    pending_family_last_row,
+                    max_col,
+                    excluded_columns=spacer_columns,
+                )
             section = _text(config.get("Section"))
             section_changed = section != current_section
             if include_sections and section_changed:
                 current_section = section
                 previous_variable_label = None
             if include_sections and section and section_changed:
+                section_rows.add(output_row)
                 target.cell(output_row, 1).value = section
                 target.merge_cells(start_row=output_row, start_column=1, end_row=output_row, end_column=max_col)
                 cell = target.cell(output_row, 1)
@@ -2955,6 +3004,14 @@ def _build_paired_toplines(
                     )
                     if fill is not None:
                         target.cell(output_row, block["candidate"]).fill = fill
+                metric_rule = Side(style="thin", color="D6D8DE")
+                for col in range(1, max_col + 1):
+                    if col in spacer_columns:
+                        continue
+                    metric_cell = target.cell(output_row, col)
+                    metric_border = copy(metric_cell.border)
+                    metric_border.bottom = metric_rule
+                    metric_cell.border = metric_border
                 _format_variable_label(target, output_row)
                 summary_question_rows.setdefault(question_id.casefold(), []).append((output_row, source_metric))
                 output_row += 1
@@ -2962,7 +3019,19 @@ def _build_paired_toplines(
             pending_family_key = family_key
             pending_family_last_row = output_row - 1
         if pending_family_last_row is not None:
-            _apply_question_block_separator(target, pending_family_last_row, max_col)
+            _apply_question_block_separator(
+                target,
+                pending_family_last_row,
+                max_col,
+                excluded_columns=spacer_columns,
+            )
+        _apply_paired_block_outlines(
+            target,
+            blocks,
+            3,
+            output_row - 1,
+            excluded_rows=section_rows,
+        )
         target.auto_filter.ref = f"A5:{get_column_letter(max_col)}{output_row - 1}"
         fake_blocks = {
             pair_index: {
