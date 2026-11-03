@@ -31,7 +31,7 @@ from templyfier.smart import (
 # Increment whenever parsing/classification semantics change. Streamlit keeps
 # session_state across a hot app redeploy; without this salt, users re-uploading
 # the same files can unknowingly keep an obsolete analysis from the prior release.
-ANALYSIS_SCHEMA_VERSION = "v108"
+ANALYSIS_SCHEMA_VERSION = "v109"
 
 
 LOGGER = logging.getLogger("templyfier.smart_ui")
@@ -69,7 +69,7 @@ def _question_output_signature(frame):
 
 def _support_code(phase: str, file_key: str, exc: Exception) -> str:
     """Create a deterministic, data-free reference for support conversations."""
-    payload = f"v108|{phase}|{file_key}|{type(exc).__name__}|{exc}"
+    payload = f"v109|{phase}|{file_key}|{type(exc).__name__}|{exc}"
     return "TMP-" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:10].upper()
 
 
