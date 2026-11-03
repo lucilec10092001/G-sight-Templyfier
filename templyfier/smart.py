@@ -2654,14 +2654,20 @@ def _source_metric_row_count(sheet, layout) -> int:
     )
 
 
-def _paired_header_product_label(sheet, layout, position: int) -> str:
+def _paired_header_product_label(
+    sheet, layout, position: int, *, clean_label: str = "", subtitle: str = ""
+) -> str:
     """Return a readable product name while retaining its source code."""
     raw_col = layout.product_cols[position]
     name = _text(sheet.cell(layout.product_name_row, raw_col).value)
     code = _text(sheet.cell(layout.product_header_row, raw_col).value)
-    if code and code.casefold() not in name.casefold():
-        return f"{name}\n{code}" if name else code
-    return name or code
+    primary = _text(clean_label) or name or code
+    secondary = _text(subtitle)
+    if secondary and secondary.casefold() not in primary.casefold():
+        return f"{primary}\n{secondary}"
+    if not clean_label and code and code.casefold() not in primary.casefold():
+        return f"{primary}\n{code}"
+    return primary
 
 
 def _paired_base_label(value) -> str:
@@ -2686,6 +2692,8 @@ def _build_paired_toplines(
     include_summary_details: bool,
     gap_positive_points: float | None,
     gap_negative_points: float | None,
+    product_labels: Sequence[str] | None,
+    product_subtitles: Sequence[str] | None,
 ) -> tuple[bytes, dict]:
     virtual_sources = []
     for filename, source in raw_files:
@@ -2710,6 +2718,13 @@ def _build_paired_toplines(
         raise TemplyfierError("Le nombre de noms de splits est incorrect.")
     product_keys = [_product_keys(sheet, layout) for sheet, layout in zip(data_sheets, layouts)]
     product_counts = [len(keys) for keys in product_keys]
+    clean_product_labels = [_text(value) for value in (product_labels or ())]
+    clean_product_subtitles = [_text(value) for value in (product_subtitles or ())]
+    canonical_product_count = product_counts[0] if product_counts else 0
+    if clean_product_labels and len(clean_product_labels) != canonical_product_count:
+        raise TemplyfierError("Le nombre de noms produits personnalis�s est incorrect.")
+    if clean_product_subtitles and len(clean_product_subtitles) != canonical_product_count:
+        raise TemplyfierError("Le nombre de sous-titres produits personnalis�s est incorrect.")
     pair_plans = [
         _paired_positions(
             count, source_key, filename,
@@ -2780,6 +2795,9 @@ def _build_paired_toplines(
             candidate_name = _text(source_sheet.cell(
                 layout.product_name_row, layout.product_cols[block["candidate_pos"]]
             ).value)
+            if clean_product_labels:
+                benchmark_name = clean_product_labels[block["benchmark_pos"]] or benchmark_name
+                candidate_name = clean_product_labels[block["candidate_pos"]] or candidate_name
             target.cell(2, block["benchmark"]).value = (
                 f"{candidate_name} vs {benchmark_name}"
             )
@@ -2793,7 +2811,13 @@ def _build_paired_toplines(
                 raw_col = layout.product_cols[position]
                 out_col = block[role]
                 target.cell(3, out_col).value = _excel_safe_value(
-                    _paired_header_product_label(source_sheet, layout, position)
+                    _paired_header_product_label(
+                        source_sheet,
+                        layout,
+                        position,
+                        clean_label=clean_product_labels[position] if clean_product_labels else "",
+                        subtitle=clean_product_subtitles[position] if clean_product_subtitles else "",
+                    )
                 )
                 target.cell(4, out_col).value = _excel_safe_value(
                     _paired_base_label(source_sheet.cell(layout.sample_row, raw_col).value)
@@ -3700,6 +3724,8 @@ def build_smart_toplines(
             include_summary_details=include_summary_details,
             gap_positive_points=gap_positive_points,
             gap_negative_points=gap_negative_points,
+            product_labels=product_labels,
+            product_subtitles=product_subtitles,
         )
     if not normalized_test_type.startswith("monadic"):
         raise TemplyfierError("Type de test non reconnu : choisis Paired ou Monadic.")
