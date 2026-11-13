@@ -303,8 +303,8 @@ def audit_input_plan(
         benchmark_keys = [canonical[position] for position in benchmark_positions if 0 <= position < len(canonical)]
         for item, split in zip(inputs, names):
             missing = [key for key in benchmark_keys if key not in item.comparison_codes]
-            if missing:
-                warnings.append(f"{split} : significativité lue via les lettres G-Sight pour " + ", ".join(missing))
+            # Missing dedicated comparison columns are handled safely from G-Sight letters.
+            # This needs no CMI action and stays silent in the main journey.
             rows.append({
                 "Split": split,
                 "Benchmark": " · ".join(benchmark_keys) or "-",
@@ -1858,7 +1858,7 @@ def inspect_smart_package(raw_files: Sequence[tuple[str, object]]) -> SmartPacka
             split_layout = _active_layout(split_sheet, detect_layout(split_sheet))
             if len(split_sheets) > 1:
                 generic_title = bool(re.fullmatch(
-                    r"(?:table|sheet|feuil|data|results?|resultats?)[\s_-]*\d+(?:[\s_-]*2[\s_-]*tailed)?",
+                    r"(?:table|sheet|feuil|data|results?|resultats?)[\s_-]*\d+(?:[\s_-]*2[\s_-]*tailed)?(?:\s*\(\d+\))?",
                     _normal(split_sheet.title),
                     flags=re.I,
                 ))
