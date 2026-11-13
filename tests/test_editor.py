@@ -162,7 +162,7 @@ class EditorTests(unittest.TestCase):
             )
             sheet = load_workbook(BytesIO(data), data_only=False).active
             self.assertIn(expected_merge, {str(cell_range) for cell_range in sheet.merged_cells.ranges})
-            self.assertEqual(sheet['C1'].value, 'PAIR 1 � CANDIDATE VS BENCHMARK')
+            self.assertEqual(sheet['C1'].value, 'PAIR 1 · CANDIDATE VS BENCHMARK')
             self.assertEqual(sheet['C2'].value, 'FANTASY CANDIDATE vs FANTASY BENCHMARK')
             self.assertEqual(sheet['C3'].value, 'FANTASY BENCHMARK\nFORMULA B')
             self.assertEqual(sheet['D3'].value, 'FANTASY CANDIDATE\nFORMULA C')
@@ -201,7 +201,7 @@ class EditorTests(unittest.TestCase):
         self.assertTrue({'C1:E1', 'G1:I1'}.issubset(merges))
         self.assertEqual(
             (sheet['C1'].value, sheet['G1'].value),
-            ('PAIR 1 � CANDIDATE VS BENCHMARK', 'PAIR 2 � CANDIDATE VS BENCHMARK'),
+            ('PAIR 1 · CANDIDATE VS BENCHMARK', 'PAIR 2 · CANDIDATE VS BENCHMARK'),
         )
         self.assertEqual(sheet.column_dimensions['F'].width, 3)
         self.assertIsNone(sheet['F6'].border.left.style)
@@ -376,7 +376,7 @@ class EditorTests(unittest.TestCase):
     def test_grouped_single_metric_can_also_be_renamed(self):
         from templyfier.smart import grouped_metric_label
         config={'Display label':'Colour','Metric label':'A1','Metric labels':{'2-Yes':'Chosen'}}
-        self.assertEqual(grouped_metric_label(config,'2-Yes',1),'A1 � Chosen')
+        self.assertEqual(grouped_metric_label(config,'2-Yes',1),'A1 · Chosen')
 
     def test_broad_group_does_not_move_multimetric_variable_into_metric_column(self):
         row = deepcopy(self.rows[0])
