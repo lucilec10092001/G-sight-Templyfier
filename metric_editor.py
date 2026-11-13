@@ -173,7 +173,7 @@ def render_metric_editor(rows, key, revision, commit):
         with st.container(border=True):
             st.markdown('**Check the grouped change**')
             st.dataframe(pd.DataFrame(pending['preview']),hide_index=True,width='stretch',height=min(330,38+35*len(pending['preview'])))
-            skipped=sum(p['R�sultat'].startswith('Inchang�e') for p in pending['preview'])
+            skipped=sum(p['Résultat'].startswith('Inchangée') for p in pending['preview'])
             if skipped:st.warning(f'{skipped} question(s) were left unchanged because no complete, safe match was available.')
             st.caption('No other question will change. Generation stays paused until you confirm or cancel this change.')
             with st.container(horizontal=True):
