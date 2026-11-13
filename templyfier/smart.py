@@ -221,7 +221,7 @@ def audit_input_plan(
         positive_bases = [value for value in known_bases if value > 0]
         if not positive_bases:
             warnings.append(
-                f"Aucune base chiffrée n'a pu ·tre lue dans {item.filename}; les scores restent utilisables."
+                f"Aucune base chiffrée n'a pu être lue dans {item.filename}; les scores restent utilisables."
             )
         elif len(positive_bases) > 1 and max(positive_bases) / min(positive_bases) > 1.25:
             warnings.append(
@@ -1899,7 +1899,7 @@ def inspect_smart_package(raw_files: Sequence[tuple[str, object]]) -> SmartPacka
         item.split_name for item in inputs if item.role == "Résultats"
     )) or tuple(dict.fromkeys(all_splits))
     if len(unique_stages) > 1 and study_format != "HUT / in-use":
-        warnings.append("Plusieurs stages détectés : ils doivent ·tre assemblés, pas traités comme des splits consommateurs.")
+        warnings.append("Plusieurs stages détectés : ils doivent être assemblés, pas traités comme des splits consommateurs.")
     if study_format == "HUT / in-use" and len(unique_stages) > 1:
         warnings.append("HUT reconnu : les valeurs Stage None/USE sont des configurations de comparaison benchmark, pas des touchpoints.")
     if max(item.embedded_split_count for item in inputs) > 1:
@@ -2423,7 +2423,7 @@ def _selected_question_rows(question_rows: Sequence[dict]) -> list[dict]:
     selected = [row for row in question_rows if bool(row.get("Keep")) and row.get("Type") != "Delete"]
     selected.sort(key=lambda row: (int(row.get("Order", 9999)), str(row.get("Question ID", ""))))
     if not selected:
-        raise TemplyfierError("Aucune question n'est sélectionn·e.")
+        raise TemplyfierError("Aucune question n'est sélectionnée.")
     return selected
 
 
@@ -3570,7 +3570,7 @@ def _write_summary_block(
                 "Comparaisons significatives": significant_comparisons,
                 "Valeur produit": candidate_value,
                 "Valeur benchmark": benchmark_value,
-                "·cart": gap,
+                "Écart": gap,
                 "Seuil": f"{chosen.get('confidence')}%" if chosen and chosen.get("confidence") else "Non significatif",
                 "Résultat": symbol,
                 "Explication": decision["reason"],
@@ -3606,12 +3606,12 @@ def _create_summary_details(output, used_names: set[str], detail_rows: Sequence[
                 vertical="top",
                 wrap_text=header in {"Produit", "KPI", "Comparaisons significatives", "Explication"},
             )
-            if header in {"Valeur produit", "Valeur benchmark", "·cart"}:
+            if header in {"Valeur produit", "Valeur benchmark", "Écart"}:
                 cell.number_format = "0.00"
     widths = {
         "Split": 20, "Benchmark": 22, "Produit": 36, "KPI": 28, "Règle favorable": 18,
         "Méthode": 18, "Métrique retenue": 22, "Valeur produit": 14, "Valeur benchmark": 16,
-        "Comparaisons significatives": 48, "·cart": 12, "Seuil": 15, "Résultat": 10, "Explication": 46,
+        "Comparaisons significatives": 48, "Écart": 12, "Seuil": 15, "Résultat": 10, "Explication": 46,
     }
     for col, header in enumerate(headers, 1):
         sheet.column_dimensions[get_column_letter(col)].width = widths.get(header, 18)
