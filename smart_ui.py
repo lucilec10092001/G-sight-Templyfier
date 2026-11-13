@@ -172,7 +172,7 @@ def render_smart_mode():
             with st.spinner("Reading the study files and preparing the review..."):
                 info = inspect_smart_package([(item.name, item.getvalue()) for item in exports])
                 question_rows = [proposal_to_row(item) for item in info.questions]
-                result_inputs = [item for item in info.inputs if item.role == "R�sultats"] or list(info.inputs)
+                result_inputs = [item for item in info.inputs if item.role == "Résultats"] or list(info.inputs)
                 cmr_matches = match_cmr_products(
                     result_inputs[0].product_keys, info.product_names, cmr_upload.getvalue()
                 )
@@ -195,7 +195,7 @@ def render_smart_mode():
                     for item in result_inputs
                 ],
                 "Nom de l'onglet": [item.split_name for item in result_inputs],
-                "Benchmark d�tect�": [
+                "Benchmark détecté": [
                     " | ".join(item.comparison_codes)
                     or " | ".join(key for key in item.product_keys if key in cmr_benchmark_keys)
                     or "-"
@@ -214,7 +214,7 @@ def render_smart_mode():
     info = state["info"]
     settings = state["settings"]
 
-    result_inputs = [item for item in info.inputs if item.role == "R�sultats"] or list(info.inputs)
+    result_inputs = [item for item in info.inputs if item.role == "Résultats"] or list(info.inputs)
     if "Source" not in state["splits"].columns:
         state["splits"]["Source"] = [
             f"{item.filename} / {item.source_sheet}"
@@ -341,15 +341,15 @@ def render_smart_mode():
     st.markdown("**Splits shown in Excel**")
     split_table = st.data_editor(
         state["splits"], hide_index=True, width="stretch",
-        disabled=["Fichier", "Source", "Benchmark d�tect�", "Bases", "Split detection"],
-        column_order=["Nom de l'onglet", "Source", "Benchmark d�tect�", "Bases"],
+        disabled=["Fichier", "Source", "Benchmark détecté", "Bases", "Split detection"],
+        column_order=["Nom de l'onglet", "Source", "Benchmark détecté", "Bases"],
         column_config={
             "Nom de l'onglet": st.column_config.TextColumn("Split name shown in Excel", required=True, width="large"),
             "Source": st.column_config.TextColumn(
                 "G-Sight source", width="large",
                 help="The uploaded file, followed by the worksheet when several result sheets are inside one workbook.",
             ),
-            "Benchmark d�tect�": st.column_config.TextColumn("Benchmark found", width="large"),
+            "Benchmark détecté": st.column_config.TextColumn("Benchmark found", width="large"),
             "Bases": st.column_config.TextColumn("Base", width="medium"),
             "Fichier": None,
             "Split detection": None,
@@ -398,7 +398,7 @@ def render_smart_mode():
         f"{index + 1}. {name[:70]}": index
         for index, name in enumerate(info.product_names)
     }
-    result_inputs = [item for item in info.inputs if item.role == "R�sultats"] or list(info.inputs)
+    result_inputs = [item for item in info.inputs if item.role == "Résultats"] or list(info.inputs)
     canonical_keys = result_inputs[0].product_keys
     cmr_matches = state.get("cmr_matches", ())
     saved_product_labels = settings.get("product_labels", [])
@@ -806,7 +806,7 @@ def render_smart_mode():
     kept = question_table[question_table["Keep"].astype(bool) & question_table["Type"].ne("Delete")]
     names = split_table["Nom de l'onglet"].astype(str).str.strip()
     duplicates = names[names.str.casefold().duplicated(keep=False)].tolist()
-    result_inputs = [item for item in info.inputs if item.role == "R�sultats"] or list(info.inputs)
+    result_inputs = [item for item in info.inputs if item.role == "Résultats"] or list(info.inputs)
     auto_consolidation = test_type == "Monadic" and benchmark_sheet_mode in {"auto_exports","auto_columns"}
     products_match = all(
         (Counter(item.product_keys) == Counter(result_inputs[0].product_keys) if auto_consolidation else item.product_keys == result_inputs[0].product_keys)
