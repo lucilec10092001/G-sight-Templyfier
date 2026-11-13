@@ -175,7 +175,7 @@ def _summary_checks(workbook):
     sheet = workbook["KPI Details"]
     headers = {sheet.cell(1, col).value: col for col in range(1, sheet.max_column + 1)}
     errors = []
-    result_col = headers.get("R�sultat") or headers.get("Result")
+    result_col = headers.get("Résultat") or headers.get("Result")
     comparisons_col = headers.get("Comparaisons significatives") or headers.get("Significant comparisons")
     if result_col is None or comparisons_col is None:
         return {
@@ -185,10 +185,10 @@ def _summary_checks(workbook):
     for row in range(2, sheet.max_row + 1):
         symbol = sheet.cell(row, result_col).value
         comparisons = str(sheet.cell(row, comparisons_col).value or "")
-        if symbol == "�" and not (any(up in comparisons for up in ("", "?")) and any(down in comparisons for down in ("", "?"))):
-            errors.append(f"KPI Details row {row}: conflit sans directions oppos�es")
+        if symbol == "·" and not (any(up in comparisons for up in ("", "?")) and any(down in comparisons for down in ("", "?"))):
+            errors.append(f"KPI Details row {row}: conflit sans directions opposées")
         if symbol in {"", "?", "", "?"} and symbol not in comparisons:
-            errors.append(f"KPI Details row {row}: symbole non justifi� par les comparaisons")
+            errors.append(f"KPI Details row {row}: symbole non justifié par les comparaisons")
     return {"summary_rows": max(0, sheet.max_row - 1), "summary_errors": errors}
 
 
@@ -221,7 +221,7 @@ def _scenario_definitions():
             "mode": "separate",
         },
         {
-            "name": "Comfort White HUT - classeur consolid�",
+            "name": "Comfort White HUT - classeur consolidé",
             "sources": [UPLOAD / "G-sight output - ALL SPLITS.xlsx"],
             "historical": UPLOAD / "Comfort White HUT UK - Toplines(1).xlsx",
             "test_type": "Monadic",
@@ -239,7 +239,7 @@ def _scenario_definitions():
             "mode": "combined",
         },
         {
-            "name": "Yumos Pink HUT - 8 splits � 2 benchmarks",
+            "name": "Yumos Pink HUT - 8 splits · 2 benchmarks",
             "sources": [UPLOAD / name for name in (
                 "DATAVI~1.XLS", "DATAVI~2.XLS", "DATAVI~3.XLS", "DATAVI~4.XLS", "DAD68F~1.XLS", "DABA5C~1.XLS",
                 "DA9C69~1.XLS", "DA1981~1.XLS", "DAC581~1.XLS", "DAAE49~1.XLS", "DA26AE~1.XLS", "DA873C~1.XLS",
@@ -271,7 +271,7 @@ def qualify_scenario(config: dict) -> dict:
     inspection_sources = config.get("inspection_sources", sources)
     info = inspect_smart_package([(path.name, path) for path in inspection_sources])
     source_names = {path.name for path in sources}
-    result_inputs = [item for item in info.inputs if item.filename in source_names and item.role == "R�sultats"]
+    result_inputs = [item for item in info.inputs if item.filename in source_names and item.role == "Résultats"]
     if not result_inputs:
         result_inputs = [item for item in info.inputs if item.filename in source_names]
     split_names = [item.split_name for item in result_inputs]
@@ -355,13 +355,13 @@ def _markdown(results: list[dict]) -> str:
     lines = [
         "# Rapport de qualification - G-Sight Templyfier",
         "",
-        "Qualification ex�cut�e sur les exemples historiques fournis. Le contr�le distingue la fid�lit� technique aux sources "
-        "de la ressemblance au fichier final historique, dont la s�lection de questions et la mise en page peuvent volontairement diff�rer.",
+        "Qualification exécutée sur les exemples historiques fournis. Le contrôle distingue la fidélité technique aux sources "
+        "de la ressemblance au fichier final historique, dont la sélection de questions et la mise en page peuvent volontairement diffèrer.",
         "",
-        f"**R�sultat global : {len(results)}/{len(results)} cas valid�s.** {total_values} valeurs, {total_gaps} gaps, "
-        f"{total_significance} directions de significativit� et {total_summary_rows} lignes de KPI Summary contr�l�s sans erreur.",
+        f"**Résultat global : {len(results)}/{len(results)} cas validés.** {total_values} valeurs, {total_gaps} gaps, "
+        f"{total_significance} directions de significativité et {total_summary_rows} lignes de KPI Summary contrôlés sans erreur.",
         "",
-        "| Cas | Statut | Onglets | Valeurs contr�l�es | Fid�lit� source | Gaps | Signif. | Couverture historique unique |",
+        "| Cas | Statut | Onglets | Valeurs contrôlées | Fidélité source | Gaps | Signif. | Couverture historique unique |",
         "|---|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for item in results:
@@ -372,40 +372,40 @@ def _markdown(results: list[dict]) -> str:
             f"{item['significance_directions_checked'] - len(item['significance_direction_errors'])}/{item['significance_directions_checked']} | "
             f"{item['historical_unique_recall_pct']:.2f}% |"
         )
-    lines.extend(["", "## Lecture des contr�les", ""])
+    lines.extend(["", "## Lecture des contrôles", ""])
     lines.extend([
-        "- **Fid�lit� source** : chaque valeur num�rique g�n�r�e est retrouv�e pour le m�me produit dans l'export G-Sight correspondant.",
-        "- **Empreinte m�trique** : contr�le secondaire plus strict, qui exige aussi le m�me intitul� technique de m�trique. "
-        "Il peut �tre inf�rieur � 100 % lorsque le Templyfier remplace volontairement un item brut par un clean label.",
-        "- **Gaps** : les formules Excel suivent bien `Candidat - Benchmark` et pointent vers des cellules num�riques de la m�me ligne.",
-        "- **Signif.** : lorsqu'une couleur est pr�sente sur un gap, son sens higher/lower concorde avec le signe du gap.",
-        "- **Couverture historique unique** : part des combinaisons uniques m�trique � produit � valeur du fichier final historique "
-        "�galement retrouv�es dans la g�n�ration. Un taux inf�rieur � 100 % peut venir de questions volontairement retir�es, "
-        "de splits sources non fournis, de feuilles analytiques hors p�rim�tre ou d'une autre organisation des benchmarks.",
-        "- **KPI Details** : chaque symbole est rapproch� des comparaisons significatives qui le justifient ; `�` exige des directions oppos�es.",
+        "- **Fidélité source** : chaque valeur numérique générée est retrouvée pour le même produit dans l'export G-Sight correspondant.",
+        "- **Empreinte métrique** : contrôle secondaire plus strict, qui exige aussi le même intitulé technique de métrique. "
+        "Il peut ·tre inférieur · 100 % lorsque le Templyfier remplace volontairement un item brut par un clean label.",
+        "- **Gaps** : les formules Excel suivent bien `Candidat - Benchmark` et pointent vers des cellules numériques de la même ligne.",
+        "- **Signif.** : lorsqu'une couleur est présente sur un gap, son sens higher/lower concorde avec le signe du gap.",
+        "- **Couverture historique unique** : part des combinaisons uniques métrique · produit · valeur du fichier final historique "
+        "·galement retrouvées dans la génération. Un taux inférieur · 100 % peut venir de questions volontairement retirées, "
+        "de splits sources non fournis, de feuilles analytiques hors périmètre ou d'une autre organisation des benchmarks.",
+        "- **KPI Details** : chaque symbole est rapproché des comparaisons significatives qui le justifient ; `·` exige des directions opposées.",
         "",
-        "## D�tail par cas",
+        "## Détail par cas",
         "",
     ])
     for item in results:
         lines.extend([
             f"### {item['scenario']} - {item['status']}",
             "",
-            f"- Sources : {item['source_files']} fichier(s) ; {item['questions_selected']} question(s) s�lectionn�e(s).",
-            f"- Valeurs : {item['source_supported_values']}/{item['generated_numeric_values']} justifi�es par les sources.",
-            f"- Empreinte m�trique stricte : {item['source_metric_supported_values']}/{item['generated_numeric_values']}.",
+            f"- Sources : {item['source_files']} fichier(s) ; {item['questions_selected']} question(s) sélectionn·e(s).",
+            f"- Valeurs : {item['source_supported_values']}/{item['generated_numeric_values']} justifiées par les sources.",
+            f"- Empreinte métrique stricte : {item['source_metric_supported_values']}/{item['generated_numeric_values']}.",
             f"- Gaps : {item['gap_formulas']} formule(s), {len(item['gap_formula_errors'])} erreur(s).",
-            f"- Significativit�s : {item['significance_directions_checked']} direction(s) contr�l�e(s), "
+            f"- Significativités : {item['significance_directions_checked']} direction(s) contrôlée(s), "
             f"{len(item['significance_direction_errors'])} erreur(s).",
-            f"- KPI Details : {item['summary_rows']} ligne(s), {len(item['summary_errors'])} incoh�rence(s).",
-            f"- Combinaisons manquantes : {'aucune' if not item['missing_combinations'] else ' � '.join(item['missing_combinations'])}.",
+            f"- KPI Details : {item['summary_rows']} ligne(s), {len(item['summary_errors'])} incohérence(s).",
+            f"- Combinaisons manquantes : {'aucune' if not item['missing_combinations'] else ' · '.join(item['missing_combinations'])}.",
         ])
         if item["errors"]:
-            lines.append("- Anomalies : " + " � ".join(item["errors"]))
+            lines.append("- Anomalies : " + " · ".join(item["errors"]))
         if item["scenario"].startswith("Einstein Paired"):
             lines.append(
-                "- Port�e historique : les 4 exports fournis ne couvrent qu'une partie des splits pr�sents dans la topline historique ; "
-                "la faible couverture historique n'est donc pas une erreur de g�n�ration."
+                "- Portée historique : les 4 exports fournis ne couvrent qu'une partie des splits présents dans la topline historique ; "
+                "la faible couverture historique n'est donc pas une erreur de génération."
             )
         lines.append("")
     return "\n".join(lines)
