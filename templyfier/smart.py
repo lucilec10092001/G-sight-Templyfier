@@ -702,7 +702,7 @@ def _embedded_data_sheets(workbook):
         # evaluated stage, such as "NEAT 2_TAILED".  The 1_TAILED and DELTA
         # companion sheets contain the same study data under a different
         # significance view and must never be interpreted as extra splits.
-        if re.search(r"(?:^|[ _-])2[ _-]*TAILED$", sheet.title, flags=re.I):
+        if re.search(r"(?:^|[ _-])2[ _-]*TAILED(?:\s*\(\d+\))?$", sheet.title, flags=re.I):
             try:
                 detect_layout(sheet)
                 sheets.append(sheet)
