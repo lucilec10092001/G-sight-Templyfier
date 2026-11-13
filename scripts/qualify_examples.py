@@ -376,11 +376,11 @@ def _markdown(results: list[dict]) -> str:
     lines.extend([
         "- **Fidélité source** : chaque valeur numérique générée est retrouvée pour le même produit dans l'export G-Sight correspondant.",
         "- **Empreinte métrique** : contrôle secondaire plus strict, qui exige aussi le même intitulé technique de métrique. "
-        "Il peut ·tre inférieur · 100 % lorsque le Templyfier remplace volontairement un item brut par un clean label.",
+        "Il peut être inférieur à 100 % lorsque le Templyfier remplace volontairement un item brut par un clean label.",
         "- **Gaps** : les formules Excel suivent bien `Candidat - Benchmark` et pointent vers des cellules numériques de la même ligne.",
         "- **Signif.** : lorsqu'une couleur est présente sur un gap, son sens higher/lower concorde avec le signe du gap.",
         "- **Couverture historique unique** : part des combinaisons uniques métrique · produit · valeur du fichier final historique "
-        "·galement retrouvées dans la génération. Un taux inférieur · 100 % peut venir de questions volontairement retirées, "
+        "Également retrouvées dans la génération. Un taux inférieur à 100 % peut venir de questions volontairement retirées, "
         "de splits sources non fournis, de feuilles analytiques hors périmètre ou d'une autre organisation des benchmarks.",
         "- **KPI Details** : chaque symbole est rapproché des comparaisons significatives qui le justifient ; `·` exige des directions opposées.",
         "",
@@ -391,7 +391,7 @@ def _markdown(results: list[dict]) -> str:
         lines.extend([
             f"### {item['scenario']} - {item['status']}",
             "",
-            f"- Sources : {item['source_files']} fichier(s) ; {item['questions_selected']} question(s) sélectionn·e(s).",
+            f"- Sources : {item['source_files']} fichier(s) ; {item['questions_selected']} question(s) sélectionnée(s).",
             f"- Valeurs : {item['source_supported_values']}/{item['generated_numeric_values']} justifiées par les sources.",
             f"- Empreinte métrique stricte : {item['source_metric_supported_values']}/{item['generated_numeric_values']}.",
             f"- Gaps : {item['gap_formulas']} formule(s), {len(item['gap_formula_errors'])} erreur(s).",
