@@ -31,7 +31,7 @@ from templyfier.smart import (
 # Increment whenever parsing/classification semantics change. Streamlit keeps
 # session_state across a hot app redeploy; without this salt, users re-uploading
 # the same files can unknowingly keep an obsolete analysis from the prior release.
-ANALYSIS_SCHEMA_VERSION = "v109"
+ANALYSIS_SCHEMA_VERSION = "v110"
 
 
 LOGGER = logging.getLogger("templyfier.smart_ui")
@@ -69,7 +69,7 @@ def _question_output_signature(frame):
 
 def _support_code(phase: str, file_key: str, exc: Exception) -> str:
     """Create a deterministic, data-free reference for support conversations."""
-    payload = f"v109|{phase}|{file_key}|{type(exc).__name__}|{exc}"
+    payload = f"v110|{phase}|{file_key}|{type(exc).__name__}|{exc}"
     return "TMP-" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:10].upper()
 
 
@@ -194,7 +194,7 @@ def render_smart_mode():
                     else item.filename
                     for item in result_inputs
                 ],
-                "Nom de l'onglet": [item.split_name for item in result_inputs],
+                "Nom de l'onglet": ["TOTAL SAMPLE" if item.split_name == "TOTAL" else item.split_name for item in result_inputs],
                 "Benchmark détecté": [
                     " | ".join(item.comparison_codes)
                     or " | ".join(key for key in item.product_keys if key in cmr_benchmark_keys)
@@ -866,16 +866,6 @@ def render_smart_mode():
         )
     if not empty_standard_recipes.empty:
         st.error(f"{len(empty_standard_recipes)} kept question(s) have no selected metric.")
-    incomplete_comparisons = [
-        item.split_name for item in result_inputs
-        if len(item.comparison_codes) < benchmark_count
-    ] if test_type == "Monadic" and not auto_consolidation else []
-    if incomplete_comparisons:
-        st.info(
-            "No dedicated Delta column was found for: " + ", ".join(incomplete_comparisons)
-            + ". Templyfier will use the G-Sight significance letters for each benchmark."
-        )
-
     structure_summary = question_structure_summary(question_table.to_dict("records"))
     st.caption(
         "Structure check - "
