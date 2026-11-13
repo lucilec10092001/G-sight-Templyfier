@@ -134,17 +134,17 @@ class ConsolidatedPairedTests(unittest.TestCase):
         workbook = load_workbook(BytesIO(self.source_bytes()))
         total = workbook["TOTAL"]
         workbook.remove(workbook["BOOST"])
-        total.title = "Table_1_2_TAILED"
+        total.title = "Table_1 2_TAILED (3)"
         total["A1"] = "Stage: OVERALL - IN USE"
 
         age = workbook.copy_worksheet(total)
-        age.title = "Table_2_2_TAILED"
+        age.title = "Table_1 2_TAILED (2)"
         age["A2"] = "Search: S-03-Age: 18 - 30 years, 31 - 40 years"
         younger = workbook.copy_worksheet(total)
-        younger.title = "Table_3_2_TAILED"
+        younger.title = "Table_1 2_TAILED"
         younger["A2"] = "Search: S-03-Age: Under 18 years, 18 - 30 years"
         duplicate_total = workbook.copy_worksheet(total)
-        duplicate_total.title = "Table_4_2_TAILED"
+        duplicate_total.title = "Table_1 2_TAILED (4)"
         one_tailed = workbook.copy_worksheet(age)
         one_tailed.title = "Table_2_1_TAILED"
         delta = workbook.copy_worksheet(age)
@@ -159,7 +159,7 @@ class ConsolidatedPairedTests(unittest.TestCase):
         self.assertEqual(len(info.inputs), 3)
         self.assertEqual(
             [item.source_sheet for item in info.inputs],
-            ["Table_1_2_TAILED", "Table_2_2_TAILED", "Table_3_2_TAILED"],
+            ["Table_1 2_TAILED (3)", "Table_1 2_TAILED (2)", "Table_1 2_TAILED"],
         )
         self.assertEqual(
             [item.split_name for item in info.inputs],
