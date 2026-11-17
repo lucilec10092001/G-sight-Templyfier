@@ -22,19 +22,19 @@ def render_review_center(rows, key):
                 st.dataframe(pd.DataFrame(ordered).drop(columns=['Code']),hide_index=True,width='stretch',height=min(275,38+35*len(ordered)))
             st.caption('Use the guided question review below to check or change these suggestions one by one.')
         elif not audit['kept']:
-            st.info('Aucune question gardée. Coche « Garder » sur au moins une question avant de générer.')
+            st.info('No question is currently kept. Tick Keep for at least one question before generating.')
         else:
-            st.success('Aucune anomalie détectée par ces contrôles. Relis les choix métier avant de valider.')
+            st.success('No issue was detected by these checks. Review the study choices before generating.')
     return audit
 
 
 def render_structure_preview(rows, available_by_id, split_names, key, metric_availability_by_id=None, result_export_count=None):
     with st.expander('Voir la structure des lignes avant génération',expanded=False):
-        st.caption('Aperçu des libellés et des métriques sélectionnées, dans leur ordre prévu. Aucune valeur n’est simulée. La disponibilité peut varier entre les exports ; les valeurs seront prises dans les fichiers source lors de la génération.')
+        st.caption('Preview of the selected labels and results in their planned order. No score is simulated; values are read from the uploaded sources during generation.')
         split=st.selectbox('Filtre de splits de cet aperçu',['Tous les choix']+list(dict.fromkeys(split_names)),key=f'preview_split_{key}')
         planned=preview_rows(rows,None if split=='Tous les choix' else split,available_by_id,metric_availability_by_id,result_export_count)
-        st.caption(f'{len(planned)} ligne(s) de métriques prévues dans cette vue, hors en-têtes de section et synthèses KPI.')
+        st.caption(f'{len(planned)} result row(s) planned in this view, excluding section headers and KPI summaries.')
         if planned:
             st.dataframe(pd.DataFrame(planned),hide_index=True,width='stretch',height=360)
         else:
-            st.info('Aucune ligne prévue pour ce filtre. Vérifie les questions gardées, les métriques et les splits inclus.')
+            st.info('No row is planned for this filter. Check the kept questions, selected results and included splits.')
