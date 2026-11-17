@@ -72,6 +72,23 @@ class EnglishUiTests(unittest.TestCase):
         self.assertIn('icon=":material/check_circle:"', source)
         self.assertIn('page_icon=":material/bar_chart:"', source)
 
+    def test_visible_review_and_input_audit_messages_stay_in_english(self):
+        root = Path(__file__).resolve().parents[1]
+        source = "\n".join(
+            (root / name).read_text(encoding="utf-8")
+            for name in ("smart_ui.py", "review_ui.py")
+        )
+        for french_text in (
+            "Priorités de vérification",
+            "Questions à corriger",
+            "Voir la structure",
+            "Aucune question gardée",
+            "Aucune anomalie détectée",
+            "Aperçu des libellés",
+            "Le plan produits",
+        ):
+            self.assertNotIn(french_text, source)
+
     def test_production_python_sources_have_no_unicode_replacement_character(self):
         root = Path(__file__).resolve().parents[1]
         offenders = [
