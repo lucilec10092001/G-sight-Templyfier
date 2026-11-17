@@ -209,24 +209,24 @@ def audit_input_plan(
     warnings: list[str] = []
     rows: list[dict] = []
     if len(names) != len(inputs):
-        blockers.append("Le nombre de noms de splits ne correspond pas au nombre d'exports de résultats.")
+        blockers.append("The number of split names does not match the detected result sources.")
         names = [item.split_name for item in inputs]
     if not inputs:
-        return {"rows": rows, "blockers": ["Aucun export de résultats détecté."], "warnings": [], "ready": False}
+        return {"rows": rows, "blockers": ["No G-Sight result source was detected."], "warnings": [], "ready": False}
 
     for item in inputs:
         known_bases = [value for value in item.counts if isinstance(value, int)]
         if any(value <= 0 for value in known_bases):
-            blockers.append(f"Base nulle détectée dans {item.filename}.")
+            blockers.append(f"A zero sample base was detected in {item.filename}.")
         positive_bases = [value for value in known_bases if value > 0]
         if not positive_bases:
             warnings.append(
-                f"Aucune base chiffrée n'a pu être lue dans {item.filename}; les scores restent utilisables."
+                f"No numeric sample base could be read in {item.filename}; the scores can still be used."
             )
         elif len(positive_bases) > 1 and max(positive_bases) / min(positive_bases) > 1.25:
             warnings.append(
-                f"Bases très diffèrentes entre produits dans {item.filename} "
-                f"({min(positive_bases)} · {max(positive_bases)}). Vérifie le filtre G-Sight."
+                f"Product sample bases differ substantially in {item.filename} "
+                f"({min(positive_bases)} · {max(positive_bases)}). Check the G-Sight filter."
             )
 
     canonical = inputs[0].product_keys
@@ -237,7 +237,7 @@ def audit_input_plan(
             and (Counter(item.product_keys) == Counter(canonical) if automatic_exports and not paired else item.product_keys == canonical)
         )
         if not paired and not same_plan:
-            blockers.append(f"Plan produits diffèrent dans {item.filename}.")
+            blockers.append(f"The product plan differs in {item.filename}.")
 
     if paired:
         for item, split in zip(inputs, names):
@@ -256,35 +256,35 @@ def audit_input_plan(
                 "Split": split,
                 "Benchmark": f"{len(pairs)} internal pair(s)" if valid else "Pair mapping required",
                 "Export": item.filename,
-                "Produits": len(item.product_keys),
-                "Contrôle": "Prêt" if valid else "· corriger",
+                "Products": len(item.product_keys),
+                "Status": "Ready" if valid else "Needs correction",
             })
     elif automatic_exports:
         benchmark_keys = [canonical[position] for position in benchmark_positions if 0 <= position < len(canonical)]
         if not benchmark_keys:
-            blockers.append("Aucun benchmark valide n'a été identifié.")
+            blockers.append("No valid benchmark was identified.")
         split_order = list(dict.fromkeys(names))
         for split in split_order:
             indexes = [index for index, value in enumerate(names) if _normal(value) == _normal(split)]
             for benchmark_key in benchmark_keys:
                 matches = [index for index in indexes if benchmark_key in inputs[index].comparison_codes]
                 if len(matches) == 1:
-                    status = "Prêt"
+                    status = "Ready"
                     export_name = inputs[matches[0]].filename
                 elif not matches:
-                    status = "Export manquant"
+                    status = "Missing source"
                     export_name = "-"
-                    blockers.append(f"Export manquant : {split} vs {benchmark_key}.")
+                    blockers.append(f"Missing source: {split} vs {benchmark_key}.")
                 else:
-                    status = "Doublon"
+                    status = "Duplicate"
                     export_name = " · ".join(inputs[index].filename for index in matches)
-                    blockers.append(f"Plusieurs exports détectés pour {split} vs {benchmark_key}.")
+                    blockers.append(f"Several sources were detected for {split} vs {benchmark_key}.")
                 rows.append({
                     "Split": split,
                     "Benchmark": benchmark_key,
                     "Export": export_name,
-                    "Produits": len(canonical),
-                    "Contrôle": status,
+                    "Products": len(canonical),
+                    "Status": status,
                 })
         unused = [
             item.filename for item in inputs
@@ -292,14 +292,14 @@ def audit_input_plan(
                        for code in item.comparison_codes)
         ]
         if unused:
-            warnings.append("Benchmark non rapproché dans : " + " · ".join(unused))
+            warnings.append("Benchmark not matched in: " + " · ".join(unused))
     else:
         duplicate_names = {
             name for name in names
             if sum(_normal(other) == _normal(name) for other in names) > 1
         }
         if duplicate_names:
-            blockers.append("Noms de splits en double : " + " · ".join(sorted(duplicate_names)))
+            blockers.append("Duplicate split names: " + " · ".join(sorted(duplicate_names)))
         benchmark_keys = [canonical[position] for position in benchmark_positions if 0 <= position < len(canonical)]
         for item, split in zip(inputs, names):
             missing = [key for key in benchmark_keys if key not in item.comparison_codes]
@@ -309,8 +309,8 @@ def audit_input_plan(
                 "Split": split,
                 "Benchmark": " · ".join(benchmark_keys) or "-",
                 "Export": item.filename,
-                "Produits": len(item.product_keys),
-                "Contrôle": "Prêt",
+                "Products": len(item.product_keys),
+                "Status": "Ready",
             })
     return {
         "rows": rows,
