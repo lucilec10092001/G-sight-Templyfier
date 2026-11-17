@@ -7,9 +7,9 @@ from templyfier.review import audit_questions, preview_rows
 def render_review_center(rows, key):
     audit=audit_questions(rows)
     with st.container(border=True):
-        st.markdown('**Priorités de vérification CMI**')
+        st.markdown('**CMI review priorities**')
         columns=st.columns(3)
-        columns[0].metric('Questions à corriger',len({i['Question ID'] for i in audit['blockers']}))
+        columns[0].metric('Questions to correct',len({i['Question ID'] for i in audit['blockers']}))
         columns[1].metric('Questions avec un point à vérifier',len(audit['attention_ids']))
         columns[2].metric('Questions gardées',audit['kept'])
         if not audit['blockers']:
@@ -29,10 +29,10 @@ def render_review_center(rows, key):
 
 
 def render_structure_preview(rows, available_by_id, split_names, key, metric_availability_by_id=None, result_export_count=None):
-    with st.expander('Voir la structure des lignes avant génération',expanded=False):
+    with st.expander('Preview the Excel row structure',expanded=False):
         st.caption('Preview of the selected labels and results in their planned order. No score is simulated; values are read from the uploaded sources during generation.')
-        split=st.selectbox('Filtre de splits de cet aperçu',['Tous les choix']+list(dict.fromkeys(split_names)),key=f'preview_split_{key}')
-        planned=preview_rows(rows,None if split=='Tous les choix' else split,available_by_id,metric_availability_by_id,result_export_count)
+        split=st.selectbox('Split filter for this preview',['All selections']+list(dict.fromkeys(split_names)),key=f'preview_split_{key}')
+        planned=preview_rows(rows,None if split=='All selections' else split,available_by_id,metric_availability_by_id,result_export_count)
         st.caption(f'{len(planned)} result row(s) planned in this view, excluding section headers and KPI summaries.')
         if planned:
             st.dataframe(pd.DataFrame(planned),hide_index=True,width='stretch',height=360)
