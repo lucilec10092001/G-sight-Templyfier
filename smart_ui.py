@@ -858,7 +858,7 @@ def render_smart_mode():
     if duplicates and not auto_consolidation:
         st.error(f"Duplicate worksheet names: {', '.join(sorted(set(duplicates)))}")
     if test_type == "Monadic" and not products_match:
-        st.error("Le plan produits n'est pas identique dans tous les exports.")
+        st.error("The product plan is not identical across all result sources.")
     if test_type == "Paired" and not paired_plans_valid:
         st.error(
             "At least one Paired split needs a valid Benchmark/Candidate mapping. "
