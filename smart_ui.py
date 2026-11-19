@@ -173,11 +173,29 @@ def render_smart_mode():
                 info = inspect_smart_package([(item.name, item.getvalue()) for item in exports])
                 question_rows = [proposal_to_row(item) for item in info.questions]
                 result_inputs = [item for item in info.inputs if item.role == "Résultats"] or list(info.inputs)
+                product_reference_candidates = [
+                    item for item in info.inputs
+                    if len(item.product_keys) == len(info.product_names)
+                ]
+                if not product_reference_candidates:
+                    raise TemplyfierError(
+                        "Templyfier could not align the detected product codes and names."
+                    )
+                product_reference = max(
+                    product_reference_candidates,
+                    key=lambda item: (
+                        item.filename == info.reference_filename,
+                        item.role == "Résultats",
+                        len(item.product_keys),
+                    ),
+                )
                 cmr_matches = match_cmr_products(
-                    result_inputs[0].product_keys, info.product_names, cmr_upload.getvalue()
+                    product_reference.product_keys,
+                    info.product_names,
+                    cmr_upload.getvalue(),
                 )
                 cmr_benchmark_keys = {
-                    result_inputs[0].product_keys[position]
+                    product_reference.product_keys[position]
                     for position in cmr_benchmark_positions(cmr_matches)
                 }
         except Exception as exc:
