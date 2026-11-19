@@ -2791,10 +2791,16 @@ def _build_paired_toplines(
     def custom_values_by_key(values, source_index):
         if not values or source_index is None:
             return {}
+        source_keys = product_keys[source_index]
+        key_counts = Counter(source_keys)
         return {
             key: values[position]
-            for position, key in enumerate(product_keys[source_index])
-            if position < len(values) and values[position]
+            for position, key in enumerate(source_keys)
+            if (
+                key_counts[key] == 1
+                and position < len(values)
+                and values[position]
+            )
         }
 
     custom_labels_by_key = custom_values_by_key(clean_product_labels, label_source_index)
@@ -2806,10 +2812,12 @@ def _build_paired_toplines(
         values, values_by_key, source_index, file_index, position
     ):
         key = product_keys[file_index][position]
-        if key in values_by_key:
-            return values_by_key[key]
+        # Preserve position-specific labels in the plan where the CMI edited
+        # them, especially when the same technical code occurs more than once.
         if source_index == file_index and position < len(values):
             return values[position]
+        if key in values_by_key:
+            return values_by_key[key]
         return ""
     pair_plans = [
         _paired_positions(
