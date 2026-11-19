@@ -1109,7 +1109,7 @@ def _is_maxdiff_question(question_id: str, label: str = "", mapped_kpi: str = ""
 def humanize_question(question_id: str, mapped_kpi: str = "") -> str:
     """Remove only the technical Q-number prefix and preserve the questionnaire wording."""
     label = re.sub(
-        r"^Q\s*[-_]?\s*\d+[A-Z]?(?:\s*[-_]\s*\d+[A-Z]?)*\s*[-_:=]?\s*",
+        r"^Q\s*[-_]?\s*\d+[A-Z]?(?:(?:\s*[._-]\s*)\d+[A-Z]?)*\s*[-_:=]?\s*",
         "",
         _text(question_id),
         flags=re.I,
@@ -1522,7 +1522,7 @@ def _attribute_display_labels(
     if question_type != "Attribute" or section not in {"FRAGRANCE CHARACTERISTICS", "PRODUCT BENEFITS"}:
         return label, ""
     qid = _normal(question_id)
-    battery_source = re.sub(r"^Q\s*[-_]?\s*\d+[A-Z]?(?:\s*[-_]\s*\d+[A-Z]?)*\s*[-_:=]?\s*", "", question_id, flags=re.I)
+    battery_source = re.sub(r"^Q\s*[-_]?\s*\d+[A-Z]?(?:(?:\s*[._-]\s*)\d+[A-Z]?)*\s*[-_:=]?\s*", "", question_id, flags=re.I)
     battery_patterns = (
         (r"(?:olfactive|olfactory)\s+attributes?\s*[-_:]\s*(.+)$", "Olfactive Attributes"),
         (r"(?:freshness\s+type|type\s+of\s+freshness)\s*[-_:]\s*(.+)$", "Type of Freshness"),
