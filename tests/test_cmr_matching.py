@@ -87,6 +87,28 @@ class CmrMatchingTests(unittest.TestCase):
         )
         self.assertEqual([item.score for item in matches], [100, 100, 100])
 
+    def test_grouped_pair_codes_in_one_cmr_cell_match_independently(self):
+        cmr = self._cmr_bytes([
+            [
+                "V1TP1, V1TP2", "AXP982AAX", "WHITE STUFF EVO",
+                "WHITE STUFF BIG", "Candidate", "",
+            ],
+            [
+                "O1K, O2K, O3K, O4K", "BNCK-357811", "",
+                "Persil Color", "Benchmark", "",
+            ],
+        ])
+        matches = match_cmr_products(
+            ("V1TP2", "O3K"),
+            ("Candidate product", "Persil benchmark"),
+            cmr,
+        )
+        self.assertEqual([item.score for item in matches], [100, 100])
+        self.assertEqual(
+            [item.cmr_code for item in matches],
+            ["V1TP1, V1TP2", "O1K, O2K, O3K, O4K"],
+        )
+
     def test_repeated_gsight_position_can_reuse_one_exact_cmr_match(self):
         cmr = self._cmr_bytes([
             ["H2N", "BNCK-325430", "", "Skip Active Clean", "Benchmark", 325430],
