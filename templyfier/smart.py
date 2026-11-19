@@ -2086,10 +2086,17 @@ def inspect_smart_package(raw_files: Sequence[tuple[str, object]]) -> SmartPacka
     if not source_sheet:
         source_sheet, _, _ = analyze_questions(source)
     suggested_benchmark_count = _suggest_benchmark_count(inputs)
+    product_reference_inputs = [
+        item for item in inputs if item.role == "Résultats"
+    ] or list(inputs)
+    product_reference = max(
+        product_reference_inputs,
+        key=lambda item: len(item.product_names),
+    )
     return SmartPackageInfo(
-        reference_filename=filename,
+        reference_filename=product_reference.filename,
         source_sheet=source_sheet,
-        product_names=next((item.product_names for item in inputs if item.role == "Résultats"), inputs[0].product_names),
+        product_names=product_reference.product_names,
         counts=_signature(sheet, layout),
         questions=questions,
         inputs=tuple(inputs),
