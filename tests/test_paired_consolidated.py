@@ -298,6 +298,52 @@ class ConsolidatedPairedTests(unittest.TestCase):
         )
 
 
+    def test_same_candidate_can_be_compared_with_different_benchmarks(self):
+        full = load_workbook(BytesIO(self.source_bytes()))
+        full.remove(full["BOOST"])
+        full_sheet = full["TOTAL"]
+        full_sheet["C3"], full_sheet["D3"] = "Ariel", "Shared candidate"
+        full_sheet["E3"], full_sheet["F3"] = "Persil", "Shared candidate"
+        full_sheet["C4"], full_sheet["D4"] = "50 - ARB", "50 - SHARED"
+        full_sheet["E4"], full_sheet["F4"] = "50 - PEB", "50 - SHARED"
+        full_payload = BytesIO()
+        full.save(full_payload)
+
+        other = load_workbook(BytesIO(self.source_bytes()))
+        other.remove(other["BOOST"])
+        other_sheet = other["TOTAL"]
+        other_sheet["C3"], other_sheet["D3"] = "Third benchmark", "Shared candidate"
+        other_sheet["C4"], other_sheet["D4"] = "50 - THB", "50 - SHARED"
+        other_sheet["E4"], other_sheet["F4"] = "0 - UNUSED1", "0 - UNUSED2"
+        other_payload = BytesIO()
+        other.save(other_payload)
+
+        files = [
+            ("full paired.xlsx", full_payload.getvalue()),
+            ("other group.xlsx", other_payload.getvalue()),
+        ]
+        info = inspect_smart_package(files)
+        rows = [proposal_to_row(item) for item in info.questions]
+        data, report = build_smart_toplines(
+            files, rows,
+            split_names=["FULL", "OTHER GROUP"], benchmark_positions=(),
+            standard_metrics=("Mean", "Top Box", "Top 2 Boxes", "Bottom 2 Boxes"),
+            include_screeners=False, test_type="Paired",
+            product_labels=(
+                "Ariel display", "Candidate X",
+                "Persil display", "Candidate X",
+            ),
+        )
+        output = load_workbook(BytesIO(data), data_only=False)
+        self.assertEqual(output["FULL"]["C2"].value, "Candidate X vs Ariel display")
+        self.assertEqual(output["FULL"]["G2"].value, "Candidate X vs Persil display")
+        self.assertEqual(
+            output["OTHER GROUP"]["C2"].value,
+            "Candidate X vs Third benchmark",
+        )
+        self.assertEqual(report["pairs_by_split"], {"FULL": 2, "OTHER GROUP": 1})
+
+
 if __name__ == "__main__":
     unittest.main()
 
