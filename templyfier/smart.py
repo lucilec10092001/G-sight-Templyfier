@@ -2086,11 +2086,11 @@ def inspect_smart_package(raw_files: Sequence[tuple[str, object]]) -> SmartPacka
     if not source_sheet:
         source_sheet, _, _ = analyze_questions(source)
     suggested_benchmark_count = _suggest_benchmark_count(inputs)
-    product_reference_inputs = [
-        item for item in inputs if item.role == "Résultats"
-    ] or list(inputs)
+    # Product labels are an editing reference, not a benchmark-role decision.
+    # Use the richest detected plan even when duplicate split naming classified
+    # that source as a companion comparison view.
     product_reference = max(
-        product_reference_inputs,
+        inputs,
         key=lambda item: len(item.product_names),
     )
     return SmartPackageInfo(
