@@ -74,6 +74,16 @@ def _cmr_product_reference(info):
     )
 
 
+def _cmr_benchmark_keys(info, matches):
+    """Resolve benchmark positions against the same product plan used for CMR matching."""
+    reference = _cmr_product_reference(info)
+    return tuple(
+        reference.product_keys[position]
+        for position in cmr_benchmark_positions(matches)
+        if 0 <= position < len(reference.product_keys)
+    )
+
+
 def _question_content_signature(frame):
     """Track content decisions without treating optional row order as a new review."""
     content = frame.drop(columns=['Order'], errors='ignore')
@@ -199,10 +209,7 @@ def render_smart_mode():
                     info.product_names,
                     cmr_upload.getvalue(),
                 )
-                cmr_benchmark_keys = {
-                    product_reference.product_keys[position]
-                    for position in cmr_benchmark_positions(cmr_matches)
-                }
+                cmr_benchmark_keys = set(_cmr_benchmark_keys(info, cmr_matches))
         except Exception as exc:
             _show_safe_error("file-analysis", key, exc)
             st.stop()
@@ -238,6 +245,7 @@ def render_smart_mode():
     settings = state["settings"]
 
     result_inputs = [item for item in info.inputs if item.role == "Résultats"] or list(info.inputs)
+    product_reference = _cmr_product_reference(info)
     if "Source" not in state["splits"].columns:
         state["splits"]["Source"] = [
             f"{item.filename} / {item.source_sheet}"
@@ -343,10 +351,9 @@ def render_smart_mode():
 
     detected_codes = list(dict.fromkeys(code for item in result_inputs for code in item.comparison_codes))
     if not detected_codes:
-        detected_codes = [
-            result_inputs[0].product_keys[position]
-            for position in cmr_benchmark_positions(state.get("cmr_matches", ()))
-        ]
+        detected_codes = list(
+            _cmr_benchmark_keys(info, state.get("cmr_matches", ()))
+        )
     if not detected_codes:
         st.caption(
             "The technical benchmark flag is not present in the uploaded files. "
@@ -422,7 +429,7 @@ def render_smart_mode():
         for index, name in enumerate(info.product_names)
     }
     result_inputs = [item for item in info.inputs if item.role == "Résultats"] or list(info.inputs)
-    canonical_keys = result_inputs[0].product_keys
+    canonical_keys = product_reference.product_keys
     cmr_matches = state.get("cmr_matches", ())
     saved_product_labels = settings.get("product_labels", [])
     saved_product_subtitles = settings.get("product_subtitles", [])
