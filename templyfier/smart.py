@@ -2792,16 +2792,25 @@ def _build_paired_toplines(
         if not values or source_index is None:
             return {}
         source_keys = product_keys[source_index]
-        key_counts = Counter(source_keys)
-        return {
-            key: values[position]
-            for position, key in enumerate(source_keys)
+        mapped = {}
+        for key in dict.fromkeys(source_keys):
+            positions = [
+                position for position, source_key in enumerate(source_keys)
+                if source_key == key and position < len(values)
+            ]
+            position_values = [values[position] for position in positions]
+            distinct_values = {value for value in position_values if value}
+            # Repeated products are normal in Paired designs. Propagate their
+            # label only when every occurrence carries the same explicit value;
+            # otherwise retain position-specific labels and avoid guessing.
             if (
-                key_counts[key] == 1
-                and position < len(values)
-                and values[position]
-            )
-        }
+                positions
+                and len(position_values) == source_keys.count(key)
+                and all(position_values)
+                and len(distinct_values) == 1
+            ):
+                mapped[key] = position_values[0]
+        return mapped
 
     custom_labels_by_key = custom_values_by_key(clean_product_labels, label_source_index)
     custom_subtitles_by_key = custom_values_by_key(
