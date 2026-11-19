@@ -11,7 +11,7 @@ from templyfier.editor_model import (change_type, export_rows, group_rows, match
                                      prepare_rows, rename_group, reorder_rows, set_metric_selection)
 from templyfier.smart import (STANDARD_METRICS, _classify, _metric_key, _validate_generated_xlsx, apply_profile,
     build_smart_toplines, configured_source_rows, default_metric_selection,
-    inspect_smart_package, profile_to_json, profile_from_json, proposal_to_row)
+    humanize_question, inspect_smart_package, profile_to_json, profile_from_json, proposal_to_row)
 
 AGG=['Mean','Top Box','Top 2 Boxes','Top 3 Boxes','Bottom Box','Bottom 2 Boxes','Bottom 3 Boxes']
 QUESTIONS={
@@ -54,6 +54,33 @@ class EditorTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.raw=source_bytes();cls.info,cls.rows=prepared(cls.raw)
+
+    def test_decimal_question_subcodes_are_removed_from_clean_labels(self):
+        self.assertEqual(
+            humanize_question("Q8.05-Scent experience overall"),
+            "Scent experience overall",
+        )
+        self.assertEqual(
+            humanize_question("Q19.16-Hygienically clean"),
+            "Hygienically clean",
+        )
+        self.assertEqual(
+            humanize_question("Q20.1-Warm, comforting"),
+            "Warm, comforting",
+        )
+        self.assertEqual(
+            humanize_question("Q3-Used the product at least 3 times"),
+            "Used the product at least 3 times",
+        )
+
+    def test_decimal_attribute_subcodes_do_not_leak_into_item_labels(self):
+        raw = source_bytes(overrides={
+            "Q19.16-Hygienically clean": ["1-No", "2-Yes"] + AGG,
+        })
+        info = inspect_smart_package([("decimal item.xlsx", raw)])
+        proposal = info.questions[0]
+        self.assertEqual(proposal.display_label, "Fragrance Characteristics")
+        self.assertEqual(proposal.metric_label, "Hygienically clean")
 
     def test_classification_keeps_comparative_answers(self):
         for wording in ['Strongest','Which product','Compared to current']:
