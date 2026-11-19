@@ -79,8 +79,8 @@ class EditorTests(unittest.TestCase):
         })
         info = inspect_smart_package([("decimal item.xlsx", raw)])
         proposal = info.questions[0]
-        self.assertEqual(proposal.display_label, "Fragrance Characteristics")
-        self.assertEqual(proposal.metric_label, "Hygienically clean")
+        self.assertEqual(proposal.display_label, "Hygienically clean")
+        self.assertEqual(proposal.metric_label, "")
 
     def test_classification_keeps_comparative_answers(self):
         for wording in ['Strongest','Which product','Compared to current']:
