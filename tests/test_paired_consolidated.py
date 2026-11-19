@@ -225,6 +225,79 @@ class ConsolidatedPairedTests(unittest.TestCase):
         self.assertEqual(output["FULL"]["G2"].value, "Candidate Two vs Benchmark Two")
 
 
+    def test_repeated_codes_keep_distinct_position_specific_product_labels(self):
+        workbook = load_workbook(BytesIO(self.source_bytes()))
+        workbook.remove(workbook["BOOST"])
+        sheet = workbook["TOTAL"]
+        sheet["C4"] = "50 - SHARED"
+        sheet["E4"] = "50 - SHARED"
+        payload = BytesIO()
+        workbook.save(payload)
+        raw = payload.getvalue()
+        info = inspect_smart_package([("repeated labels.xlsx", raw)])
+        rows = [proposal_to_row(item) for item in info.questions]
+
+        data, _ = build_smart_toplines(
+            [("repeated labels.xlsx", raw)], rows,
+            split_names=["TOTAL"], benchmark_positions=(),
+            standard_metrics=("Mean", "Top Box", "Top 2 Boxes", "Bottom 2 Boxes"),
+            include_screeners=False, test_type="Paired",
+            product_labels=(
+                "Benchmark One", "Candidate One",
+                "Benchmark Two", "Candidate Two",
+            ),
+        )
+        output = load_workbook(BytesIO(data), data_only=False)["TOTAL"]
+        self.assertEqual(output["C2"].value, "Candidate One vs Benchmark One")
+        self.assertEqual(output["G2"].value, "Candidate Two vs Benchmark Two")
+
+    def test_disjoint_split_benchmarks_fall_back_to_their_local_gsight_names(self):
+        def paired_split(benchmark, candidate, benchmark_code, candidate_code):
+            workbook = load_workbook(BytesIO(self.source_bytes()))
+            workbook.remove(workbook["BOOST"])
+            sheet = workbook["TOTAL"]
+            sheet["C3"], sheet["D3"] = benchmark, candidate
+            sheet["C4"], sheet["D4"] = (
+                f"50 - {benchmark_code}", f"50 - {candidate_code}"
+            )
+            sheet["E4"], sheet["F4"] = "0 - UNUSED1", "0 - UNUSED2"
+            payload = BytesIO()
+            workbook.save(payload)
+            return payload.getvalue()
+
+        files = [
+            ("Ariel loyalists.xlsx", paired_split(
+                "Ariel Benchmark", "Ariel Candidate", "ARIEL-B", "ARIEL-C"
+            )),
+            ("Persil switchers.xlsx", paired_split(
+                "Persil Benchmark", "Persil Candidate", "PERSIL-B", "PERSIL-C"
+            )),
+        ]
+        info = inspect_smart_package(files)
+        rows = [proposal_to_row(item) for item in info.questions]
+        data, report = build_smart_toplines(
+            files, rows,
+            split_names=["ARIEL LOYALISTS", "PERSIL SWITCHERS"],
+            benchmark_positions=(),
+            standard_metrics=("Mean", "Top Box", "Top 2 Boxes", "Bottom 2 Boxes"),
+            include_screeners=False, test_type="Paired",
+            product_labels=("Ariel display benchmark", "Ariel display candidate"),
+        )
+        output = load_workbook(BytesIO(data), data_only=False)
+        self.assertEqual(
+            output["ARIEL LOYALISTS"]["C2"].value,
+            "Ariel display candidate vs Ariel display benchmark",
+        )
+        self.assertEqual(
+            output["PERSIL SWITCHERS"]["C2"].value,
+            "Persil Candidate vs Persil Benchmark",
+        )
+        self.assertEqual(
+            report["pairs_by_split"],
+            {"ARIEL LOYALISTS": 1, "PERSIL SWITCHERS": 1},
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
 
