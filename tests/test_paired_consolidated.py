@@ -267,10 +267,10 @@ class ConsolidatedPairedTests(unittest.TestCase):
 
         files = [
             ("Ariel loyalists.xlsx", paired_split(
-                "Ariel Benchmark", "Ariel Candidate", "ARIEL-B", "ARIEL-C"
+                "Ariel Benchmark", "Ariel Candidate", "ARB1", "ARC1"
             )),
             ("Persil switchers.xlsx", paired_split(
-                "Persil Benchmark", "Persil Candidate", "PERSIL-B", "PERSIL-C"
+                "Persil Benchmark", "Persil Candidate", "PEB2", "PEC2"
             )),
         ]
         info = inspect_smart_package(files)
