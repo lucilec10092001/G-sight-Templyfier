@@ -2547,10 +2547,32 @@ def _question_applies_to_split(config: dict, split_name: str) -> bool:
     return _normal(split_name) in requested
 
 
-def _question_expected_in_source(config: dict, split_name: str, source_sheet) -> bool:
+def _question_expected_in_source(
+    config: dict,
+    split_name: str,
+    source_sheet,
+    source_filename: str = "",
+) -> bool:
     """Return whether a selected question must be present in this source table."""
     if not _question_applies_to_split(config, split_name):
         return False
+    raw_availability = _text(config.get("Availability"))
+    if raw_availability and _normal(raw_availability) not in {
+        "all", "all splits", "tous", "tous les splits", "*"
+    }:
+        available_splits = {
+            _normal(value)
+            for value in re.split(r"[;|\n·]+", raw_availability)
+            if _text(value)
+        }
+        detected_split = _normal(
+            _split_detection(source_sheet, source_filename)[0]
+        )
+        if (
+            _normal(split_name) not in available_splits
+            and detected_split not in available_splits
+        ):
+            return False
     raw_stage = _text(config.get("Stage"))
     requested_stages = {
         _normal(value)
@@ -2989,7 +3011,7 @@ def _build_paired_toplines(
             if not _question_applies_to_split(config, split_names[file_index]):
                 continue
             expected_in_source = _question_expected_in_source(
-                config, split_names[file_index], source_sheet
+                config, split_names[file_index], source_sheet, filename
             )
             question_id = _text(config.get("Question ID"))
             question_type = _text(config.get("Type"))
@@ -4145,7 +4167,7 @@ def build_smart_toplines(
                 if not _question_applies_to_split(config, split_display_name):
                     continue
                 expected_in_source = _question_expected_in_source(
-                    config, split_display_name, source_sheet
+                    config, split_display_name, source_sheet, filename
                 )
                 section = _text(config.get("Section"))
                 section_changed = section != current_section
