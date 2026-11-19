@@ -473,28 +473,35 @@ def _cmr_match_score(product_key: str, source_name: str, product: CmrProduct) ->
     key = re.sub(r"[^A-Z0-9]", "", _text(product_key).upper())
     source = _normal(source_name)
     compact_source = re.sub(r"[^a-z0-9]", "", source)
-    cmr_code = re.sub(r"[^A-Z0-9]", "", product.cmr_code.upper())
+    cmr_codes = [
+        re.sub(r"[^A-Z0-9]", "", part.upper())
+        for part in re.split(r"[,;/|\n]+", product.cmr_code)
+        if re.sub(r"[^A-Z0-9]", "", part.upper())
+    ]
     formula_code = re.sub(r"[^A-Z0-9]", "", product.formula_code.upper())
-    if key and cmr_code and key == cmr_code:
+    if key and key in cmr_codes:
         return 100, "Code CMR exact"
-    # Product headers often combine the CMR code and another stable identifier,
-    # for example "A26 356897". Match the code as a complete token so A2 cannot
-    # accidentally match A26.
-    if cmr_code and re.search(
-        rf"(?<![A-Z0-9]){re.escape(cmr_code)}(?![A-Z0-9])",
-        _text(source_name).upper(),
+    # Product headers often combine one CMR code and another stable identifier,
+    # for example "A26 356897". A single CMR cell may list one code per pair.
+    # Match every listed code as a complete token so A2 cannot match A26.
+    if any(
+        re.search(
+            rf"(?<![A-Z0-9]){re.escape(cmr_code)}(?![A-Z0-9])",
+            _text(source_name).upper(),
+        )
+        for cmr_code in cmr_codes
     ):
         return 99, "Code CMR exact dans le nom G-Sight"
     # Some Paired exports append a position suffix to the CMR code in the
     # G-Sight header (for example K1M1 for CMR row K1M). Accept only one
     # trailing digit and only when the unsuffixed code is otherwise exact.
-    if (
-        cmr_code
-        and len(cmr_code) >= 3
+    if any(
+        len(cmr_code) >= 3
         and re.search(
             rf"(?<![A-Z0-9]){re.escape(cmr_code)}\d(?![A-Z0-9])",
             _text(source_name).upper(),
         )
+        for cmr_code in cmr_codes
     ):
         return 97, "Code CMR avec suffixe de paire"
     if formula_code and formula_code.lower() in compact_source:
