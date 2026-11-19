@@ -1849,7 +1849,10 @@ def inspect_smart_package(raw_files: Sequence[tuple[str, object]]) -> SmartPacka
     # make editable product labels too short for later splits.
     _, filename, source, sheet, layout, _, _, _, _ = max(
         result_candidates,
-        key=lambda item: (len(item[4].product_cols), item[0]),
+        key=lambda item: (
+            len(_active_layout(item[3], item[4]).product_cols),
+            item[0],
+        ),
     )
     inputs = []
     for score, item_filename, item_source, item_sheet, item_layout, role, stage, embedded_count, comparison_codes in candidates:
