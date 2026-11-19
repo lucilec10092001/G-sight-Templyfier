@@ -179,6 +179,52 @@ class ConsolidatedPairedTests(unittest.TestCase):
         self.assertEqual(report["data_rows_written"], 12)
 
 
+    def test_reduced_split_before_full_plan_uses_identity_based_product_labels(self):
+        source = load_workbook(BytesIO(self.source_bytes()))
+
+        short_book = Workbook()
+        short_book.remove(short_book.active)
+        short_sheet = short_book.create_sheet("SHORT")
+        for row in source["BOOST"].iter_rows():
+            for cell in row:
+                short_sheet[cell.coordinate].value = cell.value
+        short_payload = BytesIO()
+        short_book.save(short_payload)
+
+        full_book = Workbook()
+        full_book.remove(full_book.active)
+        full_sheet = full_book.create_sheet("FULL")
+        for row in source["TOTAL"].iter_rows():
+            for cell in row:
+                full_sheet[cell.coordinate].value = cell.value
+        full_payload = BytesIO()
+        full_book.save(full_payload)
+
+        files = [
+            ("short paired.xlsx", short_payload.getvalue()),
+            ("full paired.xlsx", full_payload.getvalue()),
+        ]
+        info = inspect_smart_package(files)
+        self.assertEqual(len(info.product_names), 4)
+
+        rows = [proposal_to_row(item) for item in info.questions]
+        data, report = build_smart_toplines(
+            files, rows,
+            split_names=["SHORT", "FULL"], benchmark_positions=(),
+            standard_metrics=("Mean", "Top Box", "Top 2 Boxes", "Bottom 2 Boxes"),
+            include_screeners=False, test_type="Paired",
+            product_labels=(
+                "Benchmark One", "Candidate One",
+                "Benchmark Two", "Candidate Two",
+            ),
+        )
+        output = load_workbook(BytesIO(data), data_only=False)
+        self.assertEqual(report["pairs_by_split"], {"SHORT": 1, "FULL": 2})
+        self.assertEqual(output["SHORT"]["C2"].value, "Candidate One vs Benchmark One")
+        self.assertEqual(output["FULL"]["C2"].value, "Candidate One vs Benchmark One")
+        self.assertEqual(output["FULL"]["G2"].value, "Candidate Two vs Benchmark Two")
+
+
 if __name__ == "__main__":
     unittest.main()
 
