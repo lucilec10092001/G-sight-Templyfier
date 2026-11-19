@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 import unittest
 
-from smart_ui import _cmr_product_reference
+from smart_ui import _cmr_benchmark_keys, _cmr_product_reference
 
 
 class CmrProductReferenceTests(unittest.TestCase):
@@ -40,6 +40,27 @@ class CmrProductReferenceTests(unittest.TestCase):
         )
 
         self.assertIs(_cmr_product_reference(info), reference_item)
+
+
+    def test_benchmark_positions_use_the_full_reference_plan(self):
+        reduced = self.item("reduced.xlsx", "Résultats", ("B1", "C1"))
+        full = self.item(
+            "full.xlsx", "Comparaison benchmark",
+            ("B1", "C1", "B2", "C2"),
+        )
+        info = SimpleNamespace(
+            inputs=(reduced, full),
+            reference_filename="full.xlsx",
+            product_names=("Bench 1", "Candidate 1", "Bench 2", "Candidate 2"),
+        )
+        matches = (
+            SimpleNamespace(formula_type="benchmark", score=100),
+            SimpleNamespace(formula_type="candidate", score=100),
+            SimpleNamespace(formula_type="benchmark", score=100),
+            SimpleNamespace(formula_type="candidate", score=100),
+        )
+
+        self.assertEqual(_cmr_benchmark_keys(info, matches), ("B1", "B2"))
 
 
 if __name__ == "__main__":
