@@ -54,6 +54,26 @@ def _files_key(files, profile=None, cmr=None, local_profile_name="", local_profi
     return digest.hexdigest()
 
 
+def _cmr_product_reference(info):
+    """Return the input whose technical codes align with the displayed product plan."""
+    candidates = [
+        item for item in info.inputs
+        if len(item.product_keys) == len(info.product_names)
+    ]
+    if not candidates:
+        raise TemplyfierError(
+            "Templyfier could not align the detected product codes and names."
+        )
+    return max(
+        candidates,
+        key=lambda item: (
+            item.filename == info.reference_filename,
+            item.role == "Résultats",
+            len(item.product_keys),
+        ),
+    )
+
+
 def _question_content_signature(frame):
     """Track content decisions without treating optional row order as a new review."""
     content = frame.drop(columns=['Order'], errors='ignore')
@@ -173,22 +193,7 @@ def render_smart_mode():
                 info = inspect_smart_package([(item.name, item.getvalue()) for item in exports])
                 question_rows = [proposal_to_row(item) for item in info.questions]
                 result_inputs = [item for item in info.inputs if item.role == "Résultats"] or list(info.inputs)
-                product_reference_candidates = [
-                    item for item in info.inputs
-                    if len(item.product_keys) == len(info.product_names)
-                ]
-                if not product_reference_candidates:
-                    raise TemplyfierError(
-                        "Templyfier could not align the detected product codes and names."
-                    )
-                product_reference = max(
-                    product_reference_candidates,
-                    key=lambda item: (
-                        item.filename == info.reference_filename,
-                        item.role == "Résultats",
-                        len(item.product_keys),
-                    ),
-                )
+                product_reference = _cmr_product_reference(info)
                 cmr_matches = match_cmr_products(
                     product_reference.product_keys,
                     info.product_names,
