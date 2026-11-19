@@ -344,6 +344,42 @@ class ConsolidatedPairedTests(unittest.TestCase):
         self.assertEqual(report["pairs_by_split"], {"FULL": 2, "OTHER GROUP": 1})
 
 
+    def test_question_available_in_only_one_split_is_not_a_false_omission(self):
+        first = load_workbook(BytesIO(self.source_bytes()))
+        first.remove(first["BOOST"])
+        first_sheet = first["TOTAL"]
+        first_sheet["A2"] = "Search: S-01-Group: FIRST"
+        first_payload = BytesIO()
+        first.save(first_payload)
+
+        second = load_workbook(BytesIO(self.source_bytes()))
+        second.remove(second["BOOST"])
+        second_sheet = second["TOTAL"]
+        second_sheet["A2"] = "Search: S-02-Group: SECOND"
+        for row in range(8, 12):
+            second_sheet.cell(row, 1).value = "Q-2-Second split only"
+        second_payload = BytesIO()
+        second.save(second_payload)
+
+        files = [
+            ("first.xlsx", first_payload.getvalue()),
+            ("second.xlsx", second_payload.getvalue()),
+        ]
+        info = inspect_smart_package(files)
+        rows = [proposal_to_row(item) for item in info.questions]
+        names = [item.split_name for item in info.inputs]
+
+        data, report = build_smart_toplines(
+            files, rows,
+            split_names=names, benchmark_positions=(),
+            standard_metrics=("Mean", "Top Box", "Top 2 Boxes", "Bottom 2 Boxes"),
+            include_screeners=False, test_type="Paired",
+        )
+        output = load_workbook(BytesIO(data), data_only=False)
+        self.assertEqual(output.sheetnames, names)
+        self.assertGreater(report["data_rows_written"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()
 
