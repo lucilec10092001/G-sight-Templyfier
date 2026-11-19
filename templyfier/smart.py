@@ -1844,7 +1844,13 @@ def inspect_smart_package(raw_files: Sequence[tuple[str, object]]) -> SmartPacka
                     row[5] = "Comparaison benchmark"
                     candidates[index] = tuple(row)
     result_candidates = [item for item in candidates if item[5] == "Résultats"] or candidates
-    _, filename, source, sheet, layout, _, _, _, _ = max(result_candidates, key=lambda item: item[0])
+    # Prefer the richest active product plan. Some Paired exports contain reduced
+    # subgroup plans alongside the full TOTAL plan; using a reduced plan would
+    # make editable product labels too short for later splits.
+    _, filename, source, sheet, layout, _, _, _, _ = max(
+        result_candidates,
+        key=lambda item: (len(item[4].product_cols), item[0]),
+    )
     inputs = []
     for score, item_filename, item_source, item_sheet, item_layout, role, stage, embedded_count, comparison_codes in candidates:
         item_workbook = _workbook(item_source)
@@ -2747,11 +2753,54 @@ def _build_paired_toplines(
     product_counts = [len(keys) for keys in product_keys]
     clean_product_labels = [_text(value) for value in (product_labels or ())]
     clean_product_subtitles = [_text(value) for value in (product_subtitles or ())]
-    canonical_product_count = product_counts[0] if product_counts else 0
-    if clean_product_labels and len(clean_product_labels) != canonical_product_count:
-        raise TemplyfierError("Le nombre de noms produits personnalisés est incorrect.")
-    if clean_product_subtitles and len(clean_product_subtitles) != canonical_product_count:
-        raise TemplyfierError("Le nombre de sous-titres produits personnalisés est incorrect.")
+    label_source_index = (
+        next(
+            (index for index, count in enumerate(product_counts) if count == len(clean_product_labels)),
+            None,
+        )
+        if clean_product_labels
+        else None
+    )
+    subtitle_source_index = (
+        next(
+            (index for index, count in enumerate(product_counts) if count == len(clean_product_subtitles)),
+            None,
+        )
+        if clean_product_subtitles
+        else None
+    )
+    if clean_product_labels and label_source_index is None:
+        raise TemplyfierError(
+            "The displayed product names do not match any detected product plan."
+        )
+    if clean_product_subtitles and subtitle_source_index is None:
+        raise TemplyfierError(
+            "The displayed product subtitles do not match any detected product plan."
+        )
+
+    def custom_values_by_key(values, source_index):
+        if not values or source_index is None:
+            return {}
+        return {
+            key: values[position]
+            for position, key in enumerate(product_keys[source_index])
+            if position < len(values) and values[position]
+        }
+
+    custom_labels_by_key = custom_values_by_key(clean_product_labels, label_source_index)
+    custom_subtitles_by_key = custom_values_by_key(
+        clean_product_subtitles, subtitle_source_index
+    )
+
+    def custom_product_value(
+        values, values_by_key, source_index, file_index, position
+    ):
+        key = product_keys[file_index][position]
+        if key in values_by_key:
+            return values_by_key[key]
+        if source_index == file_index and position < len(values):
+            return values[position]
+        return ""
     pair_plans = [
         _paired_positions(
             count, source_key, filename,
@@ -2824,9 +2873,16 @@ def _build_paired_toplines(
             candidate_name = _text(source_sheet.cell(
                 layout.product_name_row, layout.product_cols[block["candidate_pos"]]
             ).value)
-            if clean_product_labels:
-                benchmark_name = clean_product_labels[block["benchmark_pos"]] or benchmark_name
-                candidate_name = clean_product_labels[block["candidate_pos"]] or candidate_name
+            benchmark_custom = custom_product_value(
+                clean_product_labels, custom_labels_by_key, label_source_index,
+                file_index, block["benchmark_pos"],
+            )
+            candidate_custom = custom_product_value(
+                clean_product_labels, custom_labels_by_key, label_source_index,
+                file_index, block["candidate_pos"],
+            )
+            benchmark_name = benchmark_custom or benchmark_name
+            candidate_name = candidate_custom or candidate_name
             target.cell(2, block["benchmark"]).value = (
                 f"{candidate_name} vs {benchmark_name}"
             )
@@ -2844,8 +2900,14 @@ def _build_paired_toplines(
                         source_sheet,
                         layout,
                         position,
-                        clean_label=clean_product_labels[position] if clean_product_labels else "",
-                        subtitle=clean_product_subtitles[position] if clean_product_subtitles else "",
+                        clean_label=custom_product_value(
+                            clean_product_labels, custom_labels_by_key, label_source_index,
+                            file_index, position,
+                        ),
+                        subtitle=custom_product_value(
+                            clean_product_subtitles, custom_subtitles_by_key,
+                            subtitle_source_index, file_index, position,
+                        ),
                     )
                 )
                 target.cell(4, out_col).value = _excel_safe_value(
