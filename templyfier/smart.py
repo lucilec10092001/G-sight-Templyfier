@@ -276,9 +276,17 @@ def audit_input_plan(
                     export_name = "-"
                     blockers.append(f"Missing source: {split} vs {benchmark_key}.")
                 else:
-                    status = "Duplicate"
+                    stages = [_normal(inputs[index].stage) for index in matches]
+                    complementary_stages = (
+                        all(stage not in {"", "none", "not specified", "non precise"} for stage in stages)
+                        and len(set(stages)) == len(stages)
+                    )
                     export_name = " · ".join(inputs[index].filename for index in matches)
-                    blockers.append(f"Several sources were detected for {split} vs {benchmark_key}.")
+                    if complementary_stages:
+                        status = "Ready - stages combined"
+                    else:
+                        status = "Duplicate"
+                        blockers.append(f"Several sources were detected for {split} vs {benchmark_key}.")
                 rows.append({
                     "Split": split,
                     "Benchmark": benchmark_key,
@@ -3955,9 +3963,24 @@ def build_smart_toplines(
         if sum(_normal(other) == _normal(name) for other in output_split_names) > 1
     }
     if duplicate_split_names and len(virtual_inputs) > len(raw_files):
+        complementary_split_names = set()
+        for split_key in duplicate_split_names:
+            indexes = [
+                index for index, name in enumerate(output_split_names)
+                if _normal(name) == split_key
+            ]
+            stages = [_normal(_stage_name(virtual_inputs[index][2])) for index in indexes]
+            if (
+                all(stage not in {"", "none", "not specified", "non precise"} for stage in stages)
+                and len(set(stages)) == len(stages)
+            ):
+                complementary_split_names.add(split_key)
         resolved_names = []
         used_names = set()
         for position, (name, (_, _, sheet)) in enumerate(zip(output_split_names, virtual_inputs), 1):
+            if _normal(name) in complementary_split_names:
+                resolved_names.append(name)
+                continue
             candidate = name
             if _normal(name) in duplicate_split_names:
                 stage = _stage_name(sheet)
@@ -4071,31 +4094,39 @@ def build_smart_toplines(
             benchmark_key = canonical_keys[benchmark_position]
             matches = [index for index in indexes if benchmark_key in comparison_codes_by_sheet[index]]
             if len(matches) > 1:
-                raise TemplyfierError(
+                stages = [_normal(_stage_name(data_sheets[index])) for index in matches]
+                complementary_stages = (
+                    all(stage not in {"", "none", "not specified", "non precise"} for stage in stages)
+                    and len(set(stages)) == len(stages)
+                )
+                if not complementary_stages:
+                    raise TemplyfierError(
                     f"Plusieurs exports correspondent · {split_display_names[split_key]} vs {benchmark_key}. "
                     "Garde un seul fichier pour cette combinaison."
                 )
             if not matches:
                 missing_benchmark_exports.append(f"{split_display_names[split_key]} vs {benchmark_key}")
                 continue
-            output_jobs.append((matches[0], label_offset, (benchmark_position,), split_display_names[split_key]))
+            output_jobs.append((tuple(matches), label_offset, (benchmark_position,), split_display_names[split_key]))
     else:
         if separate_benchmarks and normalized_output_order == "benchmark first":
             for label_offset, position in enumerate(benchmarks):
                 for file_index in range(len(data_sheets)):
-                    output_jobs.append((file_index, label_offset, (position,), output_split_names[file_index]))
+                    output_jobs.append(((file_index,), label_offset, (position,), output_split_names[file_index]))
         else:
             for file_index in range(len(data_sheets)):
                 variants = [(None, benchmarks)]
                 if separate_benchmarks:
                     variants = [(offset, (position,)) for offset, position in enumerate(benchmarks)]
                 for label_offset, active_benchmarks in variants:
-                    output_jobs.append((file_index, label_offset, active_benchmarks, output_split_names[file_index]))
+                    output_jobs.append(((file_index,), label_offset, active_benchmarks, output_split_names[file_index]))
 
     if not output_jobs:
         raise TemplyfierError("Aucune combinaison split · benchmark complète n'a été détectée.")
 
-    for file_index, label_offset, active_benchmarks, split_display_name in output_jobs:
+    for source_indexes, label_offset, active_benchmarks, split_display_name in output_jobs:
+            job_file_index = source_indexes[0]
+            file_index = job_file_index
             filename = source_filenames[file_index]
             source_sheet = data_sheets[file_index]
             layout = layouts[file_index]
@@ -4166,9 +4197,26 @@ def build_smart_toplines(
             for config in output_questions:
                 if not _question_applies_to_split(config, split_display_name):
                     continue
-                expected_in_source = _question_expected_in_source(
-                    config, split_display_name, source_sheet, filename
-                )
+                expected_in_source = False
+                selected_source = None
+                for candidate_index in source_indexes:
+                    candidate_filename = source_filenames[candidate_index]
+                    candidate_sheet = data_sheets[candidate_index]
+                    candidate_layout = layouts[candidate_index]
+                    expected_in_source = expected_in_source or _question_expected_in_source(
+                        config, split_display_name, candidate_sheet, candidate_filename
+                    )
+                    candidate_rows = configured_source_rows(
+                        candidate_sheet, candidate_layout, config, standard_metrics
+                    )
+                    if candidate_rows and selected_source is None:
+                        selected_source = (
+                            candidate_index,
+                            candidate_filename,
+                            candidate_sheet,
+                            candidate_layout,
+                            candidate_rows,
+                        )
                 section = _text(config.get("Section"))
                 section_changed = section != current_section
                 if include_sections and section_changed:
@@ -4187,8 +4235,7 @@ def build_smart_toplines(
                 question_id = _text(config.get("Question ID"))
                 question_type = _text(config.get("Type"))
                 question_metrics = _standard_metrics_for_question(config, standard_metrics)
-                source_rows = configured_source_rows(source_sheet, layout, config, standard_metrics)
-                if not source_rows:
+                if selected_source is None:
                     skipped_stage_questions += 1
                     if expected_in_source:
                         question_omissions.append({
@@ -4197,6 +4244,10 @@ def build_smart_toplines(
                             "sheet": target.title,
                         })
                     continue
+                file_index, filename, source_sheet, layout, source_rows = selected_source
+                source_positions = _occurrence_position_map(
+                    canonical_keys, product_keys[file_index]
+                )
                 # Side-by-side benchmark panels intentionally align a metric
                 # that exists in one reading as a documented blank in another.
                 # combine_readings reports those cells separately, so this is
@@ -4320,13 +4371,13 @@ def build_smart_toplines(
             summary_records.append({
                 "target": target,
                 "split": split_display_name,
-                "file_index": file_index,
+                "file_index": job_file_index,
                 "active_benchmarks": tuple(active_benchmarks),
                 "benchmark_labels": benchmark_label_map,
                 "product_order": tuple(product_order),
                 "column_blocks": column_blocks,
                 "question_rows": summary_question_rows,
-                "source_workbook": source_workbooks[file_index],
+                "source_workbook": source_workbooks[job_file_index],
             })
 
     _raise_for_question_omissions(question_omissions)
