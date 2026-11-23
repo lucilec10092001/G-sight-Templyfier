@@ -4101,9 +4101,9 @@ def build_smart_toplines(
                 )
                 if not complementary_stages:
                     raise TemplyfierError(
-                    f"Plusieurs exports correspondent · {split_display_names[split_key]} vs {benchmark_key}. "
-                    "Garde un seul fichier pour cette combinaison."
-                )
+                        f"Plusieurs exports correspondent à {split_display_names[split_key]} vs {benchmark_key}. "
+                        "Garde un seul fichier pour cette combinaison."
+                    )
             if not matches:
                 missing_benchmark_exports.append(f"{split_display_names[split_key]} vs {benchmark_key}")
                 continue
