@@ -3973,6 +3973,7 @@ def build_smart_toplines(
             if (
                 all(stage not in {"", "none", "not specified", "non precise"} for stage in stages)
                 and len(set(stages)) == len(stages)
+                and len({virtual_inputs[index][0] for index in indexes}) == len(indexes)
             ):
                 complementary_split_names.add(split_key)
         resolved_names = []
