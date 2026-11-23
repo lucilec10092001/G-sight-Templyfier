@@ -271,10 +271,12 @@ class MultiStageTests(unittest.TestCase):
             benchmark_sheet_mode="auto_exports",
         )
         workbook = load_workbook(BytesIO(output), data_only=False)
-        self.assertEqual(workbook.sheetnames, ["TOTAL"])
+        self.assertEqual(len(workbook.sheetnames), 1)
+        self.assertTrue(workbook.sheetnames[0].startswith("TOTAL"))
+        total = workbook[workbook.sheetnames[0]]
         labels = [
-            workbook["TOTAL"].cell(row, 1).value
-            for row in range(1, workbook["TOTAL"].max_row + 1)
+            total.cell(row, 1).value
+            for row in range(1, total.max_row + 1)
         ]
         self.assertTrue(any("WET" in str(label) for label in labels))
         self.assertTrue(any("NEAT" in str(label) for label in labels))
