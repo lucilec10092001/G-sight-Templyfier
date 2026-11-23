@@ -4,7 +4,12 @@ import unittest
 from openpyxl import Workbook, load_workbook
 
 from templyfier.core import TemplyfierError
-from templyfier.smart import build_smart_toplines, inspect_smart_package, proposal_to_row
+from templyfier.smart import (
+    audit_input_plan,
+    build_smart_toplines,
+    inspect_smart_package,
+    proposal_to_row,
+)
 
 
 def _multistage_export() -> bytes:
@@ -215,6 +220,65 @@ class MultiStageTests(unittest.TestCase):
         )
         self.assertTrue(output)
         self.assertEqual(report["data_rows_written"], 8)
+
+
+    @staticmethod
+    def _separate_stage_export(stage, question_id):
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "Table_1 2_TAILED"
+        sheet["A1"] = f"Stage: {stage}"
+        sheet["A2"] = "Search: TOTAL"
+        sheet["A5"], sheet["B5"] = "Variable", "Metric"
+        sheet["C3"], sheet["D3"] = "Benchmark", "Candidate"
+        sheet["C4"], sheet["D4"] = "50 - N1D", "50 - P2H"
+        sheet["C5"], sheet["D5"], sheet["E5"] = "A", "B", "N1D"
+        for row, metric, benchmark, candidate in (
+            (8, "Mean", 5.0, 5.4),
+            (9, "Top Box", 0.2, 0.3),
+            (10, "Top 2 Boxes", 0.5, 0.6),
+            (11, "Bottom 2 Boxes", 0.1, 0.1),
+        ):
+            sheet.cell(row, 1).value = question_id
+            sheet.cell(row, 2).value = metric
+            sheet.cell(row, 3).value = benchmark
+            sheet.cell(row, 4).value = candidate
+        buffer = BytesIO()
+        workbook.save(buffer)
+        return buffer.getvalue()
+
+    def test_separate_wet_and_neat_files_share_one_total_sheet(self):
+        files = [
+            ("wet.xlsx", self._separate_stage_export("WET", "Q-1-WET overall liking")),
+            ("neat.xlsx", self._separate_stage_export("NEAT", "Q-2-NEAT overall liking")),
+        ]
+        info = inspect_smart_package(files)
+        rows = [proposal_to_row(question) for question in info.questions]
+        audit = audit_input_plan(
+            info, ["TOTAL", "TOTAL"], (0,), test_type="Monadic", automatic_exports=True
+        )
+        self.assertTrue(audit["ready"])
+        self.assertEqual(audit["rows"][0]["Status"], "Ready - stages combined")
+
+        output, report = build_smart_toplines(
+            files,
+            rows,
+            split_names=["TOTAL", "TOTAL"],
+            benchmark_positions=(0,),
+            standard_metrics=("Mean", "Top Box", "Top 2 Boxes", "Bottom 2 Boxes"),
+            include_screeners=False,
+            test_type="Monadic",
+            benchmark_sheet_mode="auto_exports",
+        )
+        workbook = load_workbook(BytesIO(output), data_only=False)
+        self.assertEqual(workbook.sheetnames, ["TOTAL"])
+        labels = [
+            workbook["TOTAL"].cell(row, 1).value
+            for row in range(1, workbook["TOTAL"].max_row + 1)
+        ]
+        self.assertTrue(any("WET" in str(label) for label in labels))
+        self.assertTrue(any("NEAT" in str(label) for label in labels))
+        self.assertEqual(report["missing_benchmark_exports"], [])
 
 
 if __name__ == "__main__":
