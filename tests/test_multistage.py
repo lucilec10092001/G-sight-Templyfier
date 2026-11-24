@@ -283,6 +283,31 @@ class MultiStageTests(unittest.TestCase):
         self.assertEqual(report["missing_benchmark_exports"], [])
 
 
+    def test_wet_and_damp_wet_files_remain_a_true_duplicate(self):
+        files = [
+            ("wet.xlsx", self._separate_stage_export("WET", "Q-1-WET overall liking")),
+            ("damp_wet.xlsx", self._separate_stage_export("DAMP WET", "Q-2-WET intensity")),
+        ]
+        info = inspect_smart_package(files)
+        rows = [proposal_to_row(question) for question in info.questions]
+        audit = audit_input_plan(
+            info, ["TOTAL", "TOTAL"], (0,), test_type="Monadic", automatic_exports=True
+        )
+        self.assertFalse(audit["ready"])
+        self.assertEqual(audit["rows"][0]["Status"], "Duplicate")
+        with self.assertRaisesRegex(TemplyfierError, "Plusieurs exports correspondent"):
+            build_smart_toplines(
+                files,
+                rows,
+                split_names=["TOTAL", "TOTAL"],
+                benchmark_positions=(0,),
+                standard_metrics=("Mean", "Top Box", "Top 2 Boxes", "Bottom 2 Boxes"),
+                include_screeners=False,
+                test_type="Monadic",
+                benchmark_sheet_mode="auto_exports",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
 
