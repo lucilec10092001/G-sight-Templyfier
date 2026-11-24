@@ -276,7 +276,7 @@ def audit_input_plan(
                     export_name = "-"
                     blockers.append(f"Missing source: {split} vs {benchmark_key}.")
                 else:
-                    stages = [_normal(inputs[index].stage) for index in matches]
+                    stages = [_stage_identity(inputs[index].stage) for index in matches]
                     complementary_stages = (
                         all(stage not in {"", "none", "not specified", "non precise"} for stage in stages)
                         and len(set(stages)) == len(stages)
@@ -708,6 +708,12 @@ def _stage_name(sheet) -> str:
                 return match.group(1).strip()
     value = _text(sheet.cell(1, 1).value).strip()
     return value or "Non précisé"
+
+
+def _stage_identity(value) -> str:
+    """Return the semantic stage used by duplicate and mapping safeguards."""
+    stage = _normal(value)
+    return "wet" if stage == "damp wet" else stage
 
 
 def _embedded_data_sheets(workbook):
@@ -3969,7 +3975,7 @@ def build_smart_toplines(
                 index for index, name in enumerate(output_split_names)
                 if _normal(name) == split_key
             ]
-            stages = [_normal(_stage_name(virtual_inputs[index][2])) for index in indexes]
+            stages = [_stage_identity(_stage_name(virtual_inputs[index][2])) for index in indexes]
             if (
                 all(stage not in {"", "none", "not specified", "non precise"} for stage in stages)
                 and len(set(stages)) == len(stages)
@@ -4095,7 +4101,7 @@ def build_smart_toplines(
             benchmark_key = canonical_keys[benchmark_position]
             matches = [index for index in indexes if benchmark_key in comparison_codes_by_sheet[index]]
             if len(matches) > 1:
-                stages = [_normal(_stage_name(data_sheets[index])) for index in matches]
+                stages = [_stage_identity(_stage_name(data_sheets[index])) for index in matches]
                 complementary_stages = (
                     all(stage not in {"", "none", "not specified", "non precise"} for stage in stages)
                     and len(set(stages)) == len(stages)
